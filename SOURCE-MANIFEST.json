@@ -1,7 +1,7 @@
 {
   "format": "trainer-public-source",
   "version": "0.3.1",
-  "sourceCommit": "e465bae602ad9b8ea2ba0ba6fdb0a65b7ec55b49",
+  "sourceCommit": "4c93668ccc5da99d58340345774e17ad1547bd29",
   "files": [
     {
       "path": ".gitattributes",
@@ -449,7 +449,7 @@
     },
     {
       "path": "server/test/recording-context.test.ts",
-      "sha256": "6cdc6c7f046d91bcbf6452179f8cf2b40a0fe889bb21334b3d211327787515f4"
+      "sha256": "9e786bd051b931c2559a192685fdb6e1d4d42de7fbe0772500f788d92e6cdeef"
     },
     {
       "path": "server/test/recording-core.test.ts",
@@ -541,7 +541,7 @@
     },
     {
       "path": "server/vitest.config.ts",
-      "sha256": "8372c08e93e6f4fc2b27f34c77eb99a32af8289117d5c8ed4425b70d22251bc8"
+      "sha256": "50802f286e29b6d5fa2a75ac5c86930b810b618dada82dfb80ca56895eefa3d8"
     },
     {
       "path": "third-party/dependencies.json",
@@ -1109,7 +1109,7 @@
     },
     {
       "path": "web/src/recording/recordingFile.ts",
-      "sha256": "61237616b0f62eacb982de8532e518a0a07d65787ebe2e32107c162d33d70726"
+      "sha256": "d0080c2fdf18b96c353eaea8d1cc70204311c2c42e79a38cdb6dd0b8e18d4a16"
     },
     {
       "path": "web/src/recording/recordingLease.ts",

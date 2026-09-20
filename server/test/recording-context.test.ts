@@ -1,6 +1,7 @@
 import Fastify from 'fastify'
 import { DatabaseSync } from 'node:sqlite'
 import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -228,20 +229,25 @@ async function createIsolatedBuildLayout(): Promise<string> {
 }
 
 describe('recording-context 根定位（cwd 可信源）', () => {
-  it('根定位跟随进程 cwd 而非模块位置：chdir 到隔离构建根时不再上推到仓库或 .runs', async () => {
+  it('根定位跟随服务进程 cwd 而非模块位置：独立进程在隔离根启动时不再上推到仓库或 .runs', async () => {
     const originalCwd = process.cwd()
     const isolatedRoot = await createIsolatedBuildLayout()
     try {
-      process.chdir(isolatedRoot)
-      expect(resolveProjectRoot()).toBe(isolatedRoot)
-      expect(resolveProjectRoot()).not.toBe(originalCwd)
+      const output = execFileSync(process.execPath, [
+        '--import', new URL('../../node_modules/tsx/dist/loader.mjs', import.meta.url).href,
+        '--input-type=module', '-e',
+        'const m = await import(process.argv[1]); console.log(JSON.stringify({root:m.resolveProjectRoot(),info:m.readAppInfo()}))',
+        new URL('../src/recording-context.ts', import.meta.url).href,
+      ], { cwd: isolatedRoot, encoding: 'utf8', windowsHide: true, env: { ...process.env, NODE_OPTIONS: '' } })
+      const result = JSON.parse(output)
+      expect(result.root).toBe(isolatedRoot)
+      expect(result.root).not.toBe(originalCwd)
       // cwd 指向无 package.json/.git 的目录时严格降级，不读取 .runs 下的诱饵包
-      const info = readAppInfo()
+      const info = result.info
       expect(info.version).toBe('unknown')
       expect(info.gitCommit).toBe('unknown')
       expect(info.dirty).toBe(false)
     } finally {
-      process.chdir(originalCwd)
       await rm(isolatedRoot, { recursive: true, force: true })
     }
   })

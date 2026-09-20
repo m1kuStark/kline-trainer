@@ -127,7 +127,8 @@ export async function inflateGzipWithBudget(
   let pendingBytes = 0
   const flushPending = async (): Promise<void> => {
     if (pendingBytes === 0) return
-    const coalesced = pending.subarray(0, pendingBytes)
+    // 原生解压器可能继续持有已写入视图；写出独立副本后才能复用输入缓冲。
+    const coalesced = pending.slice(0, pendingBytes)
     pendingBytes = 0
     // 背压下的write同理：越界/出错时靠fatal唤醒，不能裸await
     const written = writer.write(coalesced)

@@ -1,0 +1,2 @@
+License text retrieved from https://jsumners.mit-license.org/license.txt on 2026-09-21.
+The packaged Readme.md links to this author license.

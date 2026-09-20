@@ -1,0 +1,13 @@
+node_modules/
+server/dist/
+web/dist/
+.data/
+.env
+*.log
+/output/
+test-results/
+playwright-report/
+.runs/
+.mimosa/
+
+.releases/

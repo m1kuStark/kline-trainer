@@ -1,0 +1,7 @@
+{
+  "_readme": "复制本文件为 trainer.config.json 后修改；所有字段都可以省略。tdxRoot 留空表示自动探测常见通达信安装目录（D:\\MySoftWares\\TDX、C:\\new_tdx、C:\\通达信）；port 默认 8787；dataDir 留空表示 %USERPROFILE%\\.a-share-kline-trainer；databasePath 可选，必须是绝对路径，留空表示 <dataDir>\\trainer.sqlite。环境变量 TDX_ROOT、TRAINER_DB（绝对路径）设置时优先于本文件。修改本文件（或更换新版本包）后，请先运行 Stop.cmd 停止旧服务，再运行 Start.cmd；启动器检测到配置或版本不一致时会拒绝复用并提示先停止。关闭浏览器不会停止服务，停止服务一律用 Stop.cmd。Copy this file to trainer.config.json next to Start.cmd and edit as needed; every field is optional. After changing this file (or upgrading the package), run Stop.cmd before Start.cmd; the launcher refuses to reuse a mismatched running server.",
+  "tdxRoot": "",
+  "port": 8787,
+  "dataDir": "",
+  "databasePath": ""
+}

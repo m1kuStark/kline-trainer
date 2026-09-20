@@ -1,0 +1,4 @@
+# Keep Windows launch scripts byte-stable, including CRLF, in GitHub source archives.
+*.cmd -text
+# Vite SSR's hashbang transform is sensitive to CRLF in executable ESM files.
+scripts/release/*.mjs text eol=lf

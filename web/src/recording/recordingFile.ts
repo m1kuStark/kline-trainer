@@ -15,6 +15,12 @@ export const MAX_PLAINTEXT_BYTES = 256 * 1024 * 1024
 export const MAX_DECOMPRESSED_BYTES = 256 * 1024 * 1024
 /** 判定为v2后的更紧预算 */
 export const MAX_V2_BYTES = 128 * 1024 * 1024
+/**
+ * 解压输入合并上限：逐chunk write进DecompressionStream每次有固定异步开销，
+ * 上游1字节粒度时1MiB输入约百万次write，慢CI（2vCPU/4worker）上超过30s时限。
+ * 源小块先并入该有界缓冲再写；导出仅供测试按上限构造跨边界用例。
+ */
+export const INFLATE_COALESCE_BYTES = 64 * 1024
 
 /** v1迁移时的检查点预算（合同值20000；只能由调用方传入，绝不从文件内容读取） */
 const V1_MIGRATION_MAX_CHECKPOINTS = 20_000
@@ -53,7 +59,7 @@ function concatChunks(chunks: Uint8Array[], total: number): Uint8Array<ArrayBuff
 }
 
 /**
- * gzip流式解压：手动泵送（源chunk→gunzip写入，并发读取gunzip读出端逐chunk计数），
+ * gzip流式解压：手动泵送（源chunk并入有界缓冲后写gunzip，并发读取gunzip读出端逐chunk计数），
  * 超过 maxBytes 立即取消上游 reader 并中止，绝不先完整解压再判断。
  * 不用 pipeThrough：其后台管道会急切拉满源流，且取消不向源传播。
  * 流损坏/截断抛中文可行动错误。供注入小阈值测试；生产入口用固定预算。
@@ -115,21 +121,43 @@ export async function inflateGzipWithBudget(
   // 立即挂空catch：拒绝统一在下方await draining处分类，避免注册为unhandled rejection
   draining.catch(() => {})
   let inputError: unknown = null
+  // 固定输入缓冲立即复制已读小块，允许上游在下一次read时复用其内存。
+  // 越上限先冲刷、源结束后冲刷残余再close，不持有大量小块引用。
+  const pending = new Uint8Array(INFLATE_COALESCE_BYTES)
+  let pendingBytes = 0
+  const flushPending = async (): Promise<void> => {
+    if (pendingBytes === 0) return
+    const coalesced = pending.subarray(0, pendingBytes)
+    pendingBytes = 0
+    // 背压下的write同理：越界/出错时靠fatal唤醒，不能裸await
+    const written = writer.write(coalesced)
+    written.catch(() => {})
+    await Promise.race([written, fatal])
+  }
   try {
     for (;;) {
       if (budgetHit || decompressError !== null) break
       const { done, value } = await sourceReader.read()
       if (done) {
-        // close可能在输出未排空时悬挂，必须与死亡信号赛跑，不能裸await
+        // 残余不冲刷输出即截断；close可能在输出未排空时悬挂，必须与死亡信号赛跑，不能裸await
+        await flushPending()
         const closed = writer.close()
         closed.catch(() => {})
         await Promise.race([closed, fatal])
         break
       }
-      // 背压下的write同理：越界/出错时靠fatal唤醒，不能裸await
-      const written = writer.write(value)
-      written.catch(() => {})
-      await Promise.race([written, fatal])
+      if (pendingBytes + value.byteLength > INFLATE_COALESCE_BYTES) {
+        await flushPending()
+      }
+      if (pendingBytes === 0 && value.byteLength >= INFLATE_COALESCE_BYTES) {
+        // 大块直写：与合并前行为一致，避免一次额外拷贝
+        const written = writer.write(value)
+        written.catch(() => {})
+        await Promise.race([written, fatal])
+        continue
+      }
+      pending.set(value, pendingBytes)
+      pendingBytes += value.byteLength
     }
   } catch (err) {
     inputError = err

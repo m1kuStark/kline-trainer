@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { randomBytes } from 'node:crypto'
 import {
+  INFLATE_COALESCE_BYTES,
   RECORDING_FILE_BUDGETS,
   inflateGzipWithBudget,
   readRecordingFile,
@@ -483,5 +484,80 @@ describe('解压取消时限（高压缩率死锁回归）', () => {
     await expect(
       withDeadline(inflateGzipWithBudget(stream, 256 * 1024 * 1024), 5_000, '多块截断gzip'),
     ).rejects.toThrow(/gzip 解压失败|损坏|截断/)
+  })
+})
+
+describe('解压输入合并（小块冲刷与异常路径回归）', () => {
+  it('源在每次读取后复用同一缓冲时仍保存已读取字节', async () => {
+    const plain = new Uint8Array(randomBytes(90_000))
+    const gz = await gzipOfBytes(plain)
+    const shared = new Uint8Array(997)
+    let offset = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset === gz.byteLength) { controller.close(); return }
+        const count = Math.min(shared.byteLength, gz.byteLength - offset)
+        shared.set(gz.subarray(offset, offset + count))
+        offset += count
+        controller.enqueue(shared.subarray(0, count))
+      },
+    }, { highWaterMark: 0 })
+    const out = await inflateGzipWithBudget(stream, plain.byteLength)
+    expect(Buffer.from(out).equals(Buffer.from(plain))).toBe(true)
+  })
+  // 输入端有界合并缓冲：源小块并入≤INFLATE_COALESCE_BYTES的缓冲后写解压器。
+  // 这里守住合并后的行为语义：跨合并边界字节无损、结尾残余必须冲刷、
+  // 源错误/预算命中时缓冲中尚有残余也要及时拒绝并取消，不悬挂。
+  const COALESCE_DEADLINE_MS = 750
+
+  it('跨合并边界逐字节无损：中段冲刷与结尾残余（非整除素数块）都完整冲刷', async () => {
+    // 2个完整合并期 + 非整除残余：结尾冲刷若丢失，输出必然短少最后一段
+    const total = INFLATE_COALESCE_BYTES * 2 + 12345
+    const plain = new Uint8Array(randomBytes(total))
+    const gz = await gzipOfBytes(plain)
+    const { stream } = trackedChunks(gz, 997)
+    const out = await withDeadline(inflateGzipWithBudget(stream, total + 1024), 5_000, '合并边界往返')
+    expect(out.byteLength).toBe(total)
+    expect(Buffer.from(out).equals(Buffer.from(plain))).toBe(true)
+  })
+
+  it('字节粒度小块（1/2/3字节）经合并缓冲后顺序与内容无损', async () => {
+    const plain = new Uint8Array(randomBytes(4096))
+    const gz = await gzipOfBytes(plain)
+    for (const chunkSize of [1, 2, 3]) {
+      const { stream } = trackedChunks(gz, chunkSize)
+      const out = await withDeadline(inflateGzipWithBudget(stream, 1 << 20), 5_000, `小块往返(块=${chunkSize})`)
+      expect(out.byteLength).toBe(plain.byteLength)
+      expect(Buffer.from(out).equals(Buffer.from(plain))).toBe(true)
+    }
+  })
+
+  it('源流中途出错：合并缓冲尚有残余时同样及时拒绝而非悬挂', async () => {
+    const gz = await gzipOfBytes(new Uint8Array(randomBytes(128 * 1024)))
+    // 只吐100×100B（全部留在合并缓冲内，未达合并上限）后源流出错
+    let i = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (i >= 100) {
+          controller.error(new Error('源流中断'))
+          return
+        }
+        controller.enqueue(gz.subarray(i * 100, i * 100 + 100))
+        i += 1
+      },
+    })
+    await expect(
+      withDeadline(inflateGzipWithBudget(stream, 256 * 1024 * 1024), COALESCE_DEADLINE_MS, '源错+残余缓冲'),
+    ).rejects.toThrow(/gzip 解压失败|损坏|截断/)
+  })
+
+  it('预算命中时合并缓冲尚有残余：仍立即取消源并拒绝', async () => {
+    const gz = await gzipOfBytes(new Uint8Array(randomBytes(128 * 1024)))
+    const { stream, cancelCount, readBytes } = trackedChunks(gz, 8 * 1024)
+    await expect(
+      withDeadline(inflateGzipWithBudget(stream, 1024), COALESCE_DEADLINE_MS, '预算+残余缓冲'),
+    ).rejects.toThrow(/解压预算|取消解压/)
+    expect(cancelCount()).toBe(1)
+    expect(readBytes()).toBeLessThan(gz.byteLength)
   })
 })

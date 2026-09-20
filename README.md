@@ -13,7 +13,7 @@
 
 ## 快速开始（Windows）
 
-1. 到 [Releases](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.0-windows-x64.zip`（该文件由维护者随 v0.3.0 发布，页面暂未出现时请稍候）。安装包自带运行环境，**无需安装 Node、npm 或 Python，无需订阅、模型或账号**。
+1. 到 [Releases](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.1-windows-x64.zip`（该文件由维护者随 v0.3.1 发布，页面暂未出现时请稍候）。安装包自带运行环境，**无需安装 Node、npm 或 Python，无需订阅、模型或账号**。
 2. 右键完整解压到一个固定文件夹（之后不要移动它）。
 3. 在解压目录里参照 `trainer.config.example.json` 新建 `trainer.config.json`，把 `tdxRoot` 指向你的通达信目录（JSON 里反斜杠写成 `\\`），并确认通达信已下载日线数据。
 4. 双击 `Start.cmd`，浏览器自动打开 `http://127.0.0.1:8787`。

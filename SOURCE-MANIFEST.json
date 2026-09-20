@@ -1,7 +1,7 @@
 {
   "format": "trainer-public-source",
-  "version": "0.3.0",
-  "sourceCommit": "8c2db788191a093966448ad7f42f241f06b0deb6",
+  "version": "0.3.1",
+  "sourceCommit": "e465bae602ad9b8ea2ba0ba6fdb0a65b7ec55b49",
   "files": [
     {
       "path": ".gitattributes",
@@ -9,7 +9,7 @@
     },
     {
       "path": ".github/workflows/check.yml",
-      "sha256": "9ac9e1c9060ce243f97aa8094e5d5a99717bdcffbb916bf3bc1b80e468173196"
+      "sha256": "c64f12a9482dfa60a39072bbf2e189dad867e3993144c0adbe3c1f857ace62cb"
     },
     {
       "path": ".gitignore",
@@ -25,7 +25,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "593e54c0fcd8601fe690927244ad1ed8f5074c364ddee8331d5a597ab4e9b9b6"
+      "sha256": "66978fb109352537db6f33179827e6cb2505ab7fa588ab57824eb37cf85f7120"
     },
     {
       "path": "SECURITY.md",
@@ -45,11 +45,11 @@
     },
     {
       "path": "docs/user/README.md",
-      "sha256": "e2735a3c7daeffaa612054a9d862be9453fcdd47fd3e3b6eb3b0bc964fede603"
+      "sha256": "33508748e33c85f9b5fb3c16707d824644e4171258a6dd3f18f7a438cccbbd36"
     },
     {
       "path": "docs/user/install.md",
-      "sha256": "4fc306443aacad04e83e5b93201f9f2d1e23a4b5dcb5751d7cf5028c77c31d9d"
+      "sha256": "5f4a55e4dd5326ae7929246a9b990abcc72048a98fe0193daf758418a306783e"
     },
     {
       "path": "docs/user/recording.md",
@@ -133,11 +133,11 @@
     },
     {
       "path": "package-lock.json",
-      "sha256": "52b03716c0a9b5d077adba3ff8e69a694afb567c69b5e9ff2632ea23d59d2576"
+      "sha256": "32edf855572508d786d9ad907631c66012dd3594de69ef165d9d4acd69d0e4bb"
     },
     {
       "path": "package.json",
-      "sha256": "7eafc77acd9a56b27c5e5797e7ce976ea7d3e5c1acacb36beaba651066846e9e"
+      "sha256": "e418a24541bc9ce1c38ab72a6a2f9c863fd0f0c8f851caeab2c0a3cbaaa5c538"
     },
     {
       "path": "playwright.config.ts",
@@ -169,7 +169,7 @@
     },
     {
       "path": "scripts/release/launcher.cjs",
-      "sha256": "2eebdaa6d8f77cf6d4d47446970f145bc2e039fba6a8841f8e51ac865abcf4bd"
+      "sha256": "70a8637d8a83e77036683ca02aa872614edbdb798d50148a34956c0766a63dcf"
     },
     {
       "path": "scripts/release/trainer.config.example.json",
@@ -465,7 +465,7 @@
     },
     {
       "path": "server/test/recording-file.test.ts",
-      "sha256": "75d5bda8c21ab5dc51a2366c9b2116d0994c4fd25ff56bf92b2b8baa6e0fbb68"
+      "sha256": "ec242937f3f6b07bed254ac3c432037a4dfe74a2914ffbb510c0cefd39b16af2"
     },
     {
       "path": "server/test/recording-replay.test.ts",
@@ -485,7 +485,7 @@
     },
     {
       "path": "server/test/release-launcher.test.ts",
-      "sha256": "7aa7ce037f41b5ad7ab41d2f9c6fba944b73aad8a8cc16a46f46c4a95dcb3649"
+      "sha256": "33d79488ded86fc9529d07fc9771d44c257691725895d51188c7382ecea8aa3d"
     },
     {
       "path": "server/test/release-metadata.test.ts",
@@ -1109,7 +1109,7 @@
     },
     {
       "path": "web/src/recording/recordingFile.ts",
-      "sha256": "3f383d84a83a9b6b398ee7d7a977288a71e8ebe5b8c8bdfb0e6e1ef3dfccb61e"
+      "sha256": "61237616b0f62eacb982de8532e518a0a07d65787ebe2e32107c162d33d70726"
     },
     {
       "path": "web/src/recording/recordingLease.ts",

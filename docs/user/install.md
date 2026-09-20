@@ -6,7 +6,7 @@
 
 ### 1. 下载
 
-到 [Releases 页面](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.0-windows-x64.zip`。发布包内已自带 Node 运行时，**无需安装 Node、npm 或 Python，无需订阅、账号或管理员权限**。
+到 [Releases 页面](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.1-windows-x64.zip`。发布包内已自带 Node 运行时，**无需安装 Node、npm 或 Python，无需订阅、账号或管理员权限**。
 
 ### 2. 解压
 

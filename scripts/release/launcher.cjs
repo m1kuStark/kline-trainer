@@ -321,7 +321,9 @@ function unverifiableOwnerMessage(state) {
  * recorded PID), or throw for a live owner that cannot be verified. Never
  * clears a state whose recorded PID is still alive: an unverified live owner
  * may be writing the same database, so replacing it could start a second
- * writer. Callers must re-run this under the launch lock.
+ * writer. Callers must run this under the launch lock: a concurrent stop
+ * (which takes the same lock to verify and signal) must never be observable
+ * mid-kill as "recorded PID alive but health already gone".
  */
 async function decideRecordedServer(dataDir) {
   const existing = await readOwnedState(dataDir)
@@ -551,23 +553,20 @@ async function launch(options = {}) {
         + `configured tdxRoot does not look like a TDX installation: ${config.tdxRoot}`)
     }
 
-    // Steps 1-2 can race with a concurrent launcher on the same dataDir; a
-    // bounded retry loop re-evaluates state instead of recursing.
+    // Every reuse/cleanup decision runs under the same single-flight lock
+    // stop() uses, so a concurrent stop can never be observed mid-kill.
+    // Deciding outside the lock once read the state with a live PID and then
+    // failed health confirmation after the stop's SIGKILL, rejecting a
+    // legitimate stop as an "unverifiable owner" (and a pre-lock reuse could
+    // hand back a server the stop was already killing). A bounded retry loop
+    // re-evaluates state after waiting out a contender instead of recursing.
     for (let round = 0; ; round++) {
       if (round >= 4) {
         throw new Error('启动竞争多次发生，请稍后重试 / repeated launch contention on the same data directory; try again shortly')
       }
 
-      // 1) Reuse only our own recorded server: state file + live PID + matching health identity.
-      const existing = await decideRecordedServer(dataDir)
-      if (existing.action === 'reuse') {
-        assertPortMatchesRunning(existing.state, config)
-        assertReuseCompatible(existing.state, { config, layout, tdxRoot })
-        return await reuseResult(existing.state, { dataDir, tdxRoot, openBrowser: options.openBrowser ?? true })
-      }
-      if (existing.action === 'clean') await clearState(dataDir)
-
-      // 2) Single-flight lock so two clicks cannot spawn two DB writers.
+      // 1) Single-flight lock so two clicks cannot spawn two DB writers and
+      //    launch cannot race a concurrent stop's verify-and-kill.
       const lock = await acquireLaunchLock(dataDir)
       if (!lock.owned) {
         if (!lock.info) {
@@ -577,12 +576,6 @@ async function launch(options = {}) {
         const deadline = Date.now() + (options.lockWaitMs ?? LOCK_WAIT_MS)
         let released = false
         while (Date.now() < deadline) {
-          const raced = await decideRecordedServer(dataDir)
-          if (raced.action === 'reuse') {
-            assertPortMatchesRunning(raced.state, config)
-            assertReuseCompatible(raced.state, { config, layout, tdxRoot })
-            return await reuseResult(raced.state, { dataDir, tdxRoot, openBrowser: options.openBrowser ?? true })
-          }
           if (!(await pathExists(lock.path))) {
             released = true
             break
@@ -590,25 +583,28 @@ async function launch(options = {}) {
           await delay(150)
         }
         if (!released) {
-          throw new Error(`另一个启动进程仍在进行（PID ${lock.info.pid}）／ another launch is in progress (PID ${lock.info.pid})`)
+          throw new Error(`另一个启动/停止进程仍在进行（PID ${lock.info.pid}）／ another launch or stop is in progress (PID ${lock.info.pid})`)
         }
-        // The owner released its lock without a reusable server (it failed);
-        // loop around to try starting ourselves.
+        // The owner released its lock without leaving a reusable server
+        // (its start failed, or it was a stop); loop around and decide
+        // again under our own lock acquisition.
         await delay(150)
         continue
       }
 
       try {
-        // 3) Under the lock: re-check in case a racer finished between steps 1 and 2.
-        const underLock = await decideRecordedServer(dataDir)
-        if (underLock.action === 'reuse') {
-          assertPortMatchesRunning(underLock.state, config)
-          assertReuseCompatible(underLock.state, { config, layout, tdxRoot })
-          return await reuseResult(underLock.state, { dataDir, tdxRoot, openBrowser: options.openBrowser ?? true })
+        // 2) Under the lock: reuse only our own recorded server (state file
+        //    + live PID + matching health identity), clean provably dead
+        //    records, refuse live-but-unverifiable owners.
+        const existing = await decideRecordedServer(dataDir)
+        if (existing.action === 'reuse') {
+          assertPortMatchesRunning(existing.state, config)
+          assertReuseCompatible(existing.state, { config, layout, tdxRoot })
+          return await reuseResult(existing.state, { dataDir, tdxRoot, openBrowser: options.openBrowser ?? true })
         }
-        if (underLock.action === 'clean') await clearState(dataDir)
+        if (existing.action === 'clean') await clearState(dataDir)
 
-        // 4) Stable port only: refuse a foreign occupant, never kill, never auto-change.
+        // 3) Stable port only: refuse a foreign occupant, never kill, never auto-change.
         const occupancy = await probeHealth(config.port, { timeoutMs: 1_200 })
         if (!occupancy.refused) {
           if (occupancy.responded && isTrainerHealth(occupancy.json)) {
@@ -619,7 +615,7 @@ async function launch(options = {}) {
             + `port ${config.port} is occupied; the launcher will not change ports or kill other processes`)
         }
 
-        // 5) Start the detached server: no IPC, hidden window, logs in dataDir.
+        // 4) Start the detached server: no IPC, hidden window, logs in dataDir.
         const runId = `run-${randomUUID()}`
         const readyFile = join(dataDir, READY_FILE)
         const logPath = join(dataDir, SERVER_LOG)

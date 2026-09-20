@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { randomBytes } from 'node:crypto'
-import { spawn } from 'node:child_process'
+import { spawn, type ChildProcess } from 'node:child_process'
 import http from 'node:http'
 import { EventEmitter } from 'node:events'
 import { access, copyFile, link, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -75,6 +75,8 @@ interface LauncherModule {
   }
   pidAlive(pid: number): boolean
   isTdxRootPath(root: string): Promise<boolean>
+  lockPath(dataDir: string): string
+  probeMatchesState(probe: ProbeResult, state: { runId: string, pid: number }): boolean
   readOwnedState(dataDir: string): Promise<{ state?: Record<string, unknown>, stale?: string, pid?: number | null } | null>
   launch(options: LaunchOptions): Promise<LaunchResult>
   stop(options: StopOptions): Promise<StopResult>
@@ -114,10 +116,17 @@ if (mode === 'hang') {
   const readyFile = process.env.TRAINER_READY_FILE ?? ''
   const healthBody = JSON.stringify({ status: 'ok', runId, pid: process.pid })
   const healthStatus = Number(process.env.FIXTURE_HEALTH_STATUS ?? 200)
+  // 慢健康模式：把 /api/health 的响应推迟固定的毫秒数，用于确定性地编排
+  // stop（持锁确认身份）与 launch 的交错窗口。
+  const healthDelay = Number(process.env.FIXTURE_HEALTH_DELAY_MS ?? 0)
   const server = http.createServer((request, response) => {
     if (request.url === '/api/health') {
-      response.writeHead(healthStatus, { 'content-type': 'application/json; charset=utf-8' })
-      response.end(healthBody)
+      const respond = () => {
+        response.writeHead(healthStatus, { 'content-type': 'application/json; charset=utf-8' })
+        response.end(healthBody)
+      }
+      if (healthDelay > 0) setTimeout(respond, healthDelay)
+      else respond()
       return
     }
     response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
@@ -142,17 +151,36 @@ if (mode === 'hang') {
 const FIXTURE_DIR_NAME = 'rel launch 容器 pkg'
 const NODE_BINARY = process.platform === 'win32' ? 'node.exe' : 'node'
 
-const activePids = new Set<number>()
+interface OwnedServer { pid: number, port: number, runId: string, healthDelayMs: number }
+const activeServers: OwnedServer[] = []
+const activeChildren: ChildProcess[] = []
 const activeRoots = new Set<string>()
 const activeClosers: Array<() => Promise<void>> = []
 
 afterEach(async () => {
   for (const closer of activeClosers.splice(0)) await closer().catch(() => {})
-  for (const pid of activePids) {
-    try { process.kill(pid, 'SIGKILL') } catch { /* already gone */ }
+  // 直接 spawn 的子进程用句柄结束：句柄本身就是所有权证据，不存在 PID
+  // 复用误伤问题。
+  for (const child of activeChildren.splice(0)) {
+    try {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    } catch { /* already gone */ }
   }
-  for (const pid of activePids) await waitForExit(pid)
-  activePids.clear()
+  // 分离的夹具服务只剩裸 PID；只有健康身份（runId+PID 对得上）仍然证明它
+  // 是本测试启动的那个进程时才按 PID 发信号，PID 已被系统回收时绝不误伤
+  // 无关进程。身份对不上的（已被产品逻辑停止、或已退出）一律不发信号。
+  const servers = activeServers.splice(0)
+  for (const server of servers) {
+    if (!launcher.pidAlive(server.pid)) continue
+    // 慢健康夹具的身份确认必须等待它的固定响应延迟，否则探针超时会被误判
+    // 为“身份不符”而跳过结束，留下占用夹具目录的孤儿进程。
+    const probe = await launcher.probeHealth(server.port, { timeoutMs: 400 + server.healthDelayMs })
+    if (!launcher.probeMatchesState(probe, { runId: server.runId, pid: server.pid })) continue
+    try { process.kill(server.pid, 'SIGKILL') } catch { /* already gone */ }
+  }
+  for (const server of servers) {
+    if (launcher.pidAlive(server.pid)) await waitForExit(server.pid)
+  }
   for (const root of activeRoots) await removeTree(root)
   activeRoots.clear()
 })
@@ -232,7 +260,12 @@ async function launchFixture(root: string, overrides: Record<string, string | un
     lockWaitMs: 2_000,
     ...options,
   })
-  activePids.add(result.pid)
+  activeServers.push({
+    pid: result.pid,
+    port: result.port,
+    runId: result.runId,
+    healthDelayMs: Number(overrides.FIXTURE_HEALTH_DELAY_MS ?? 0) || 0,
+  })
   return result
 }
 
@@ -253,6 +286,18 @@ function spawnCounter(dataDir: string) {
 
 async function spawnCount(dataDir: string) {
   return (await readFile(spawnCounter(dataDir), 'utf8')).trim().split('\n').length
+}
+
+// 等 stop 真正持有生命周期锁：锁文件出现意味着 stop 已越过 acquireLaunchLock，
+// 正在做健康身份确认（慢健康夹具下离 SIGKILL 还有约 800ms）。
+async function waitForLaunchLock(dataDir: string, timeoutMs = 5_000) {
+  const path = launcher.lockPath(dataDir)
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await access(path).then(() => true, () => false)) return
+    await delay(20)
+  }
+  throw new Error(`launch.lock did not appear in ${dataDir}`)
 }
 
 // 与 launchFixture 相同的 env 净化：开发者 shell 的 TDX_ROOT/TRAINER_DB 不得影响目标定位。
@@ -307,9 +352,15 @@ describe('release launcher config resolution', () => {
   })
 
   it('lets explicitly set environment variables override the config file', () => {
-    const config = launcher.resolveConfig('D:\\pkg', { tdxRoot: 'C:\\tdx', port: 1 }, { TDX_ROOT: 'C:\\other tdx', TRAINER_DB: 'D:\\db\\t.sqlite' })
-    expect(config.tdxRoot).toBe(resolve('C:\\other tdx'))
-    expect(config.databasePath).toBe(resolve('D:\\db\\t.sqlite'))
+    // Windows 风格的 "C:\..." 在 Linux 上不是绝对路径（CI 实测失败）；
+    // 夹具改用平台原生的临时目录绝对路径，覆盖关系断言保持不变。
+    const configuredTdx = join(tmpdir(), 'rel-launch-cfg', 'tdx')
+    const envTdx = join(tmpdir(), 'rel-launch-cfg', 'other tdx')
+    const envDatabase = join(tmpdir(), 'rel-launch-cfg', 'db', 't.sqlite')
+    const config = launcher.resolveConfig('D:\\pkg', { tdxRoot: configuredTdx, port: 1 }, { TDX_ROOT: envTdx, TRAINER_DB: envDatabase })
+    expect(config.tdxRoot).toBe(resolve(envTdx))
+    expect(config.databasePath).toBe(resolve(envDatabase))
+    expect(config.tdxRoot).not.toBe(resolve(configuredTdx))
     expect(config.port).toBe(1)
     expect(() => launcher.resolveConfig('D:\\pkg', {}, { TRAINER_DB: 'relative.sqlite' })).toThrow(/absolute|绝对路径/)
   })
@@ -499,7 +550,7 @@ describe('release launcher lifecycle', () => {
     const liveLock = { appId: launcher.APP_ID, pid: process.pid, startedAt: new Date().toISOString() }
     await writeFile(join(dataDir, 'launch.lock'), JSON.stringify(liveLock))
 
-    await expect(launchFixture(root, {}, { lockWaitMs: 300 })).rejects.toThrow(/launch is in progress|另一个启动进程/)
+    await expect(launchFixture(root, {}, { lockWaitMs: 300 })).rejects.toThrow(/launch or stop is in progress|另一个启动\/停止进程/)
     expect(await readFile(join(dataDir, 'launch.lock'), 'utf8')).toContain(String(process.pid))
   }, 30_000)
 
@@ -681,10 +732,11 @@ describe('release launcher stop lifecycle', () => {
     const first = await launchFixture(root, { FIXTURE_SPAWN_COUNTER: counter })
     const [stopSettled, launchSettled] = await Promise.allSettled([
       stopFixture(root, {}, { lockWaitMs: 8_000 }),
-      launchFixture(root, { FIXTURE_SPAWN_COUNTER: counter }),
+      launchFixture(root, { FIXTURE_SPAWN_COUNTER: counter }, { lockWaitMs: 8_000 }),
     ])
-    expect(stopSettled).toMatchObject({ status: 'fulfilled' })
-    expect(launchSettled).toMatchObject({ status: 'fulfilled' })
+    // 失败时先抛出真实拒绝原因，避免 PromiseSettled 匹配器只留下 status。
+    if (stopSettled.status === 'rejected') throw stopSettled.reason
+    if (launchSettled.status === 'rejected') throw launchSettled.reason
     const stopRes = (stopSettled as PromiseFulfilledResult<StopResult>).value
     const launchRes = (launchSettled as PromiseFulfilledResult<LaunchResult>).value
 
@@ -701,6 +753,40 @@ describe('release launcher stop lifecycle', () => {
       expect(spawns).toBe(2)
       expect(launchRes.pid).not.toBe(first.pid)
     }
+  }, 30_000)
+
+  it('deterministic regression: a launch started while a stop holds the lock waits it out instead of rejecting the dying server', async () => {
+    const root = await makeFixture()
+    const dataDir = join(root, '数 据 dir')
+    const port = await freePort()
+    await writeConfig(root, { port, dataDir })
+    const counter = spawnCounter(dataDir)
+
+    // 慢健康夹具：stop 拿到锁后的身份确认要等约 800ms 才 SIGKILL。锁出现后
+    // 立即发起 launch：旧实现（锁外的 decideRecordedServer）读取 state 时
+    // PID 还活着，随后的健康确认却落在 kill 之后，于是把合法 stop 误报成
+    // live-unverifiable 并拒绝（Linux CI 实测失败）。修复后 launch 必须等锁，
+    // 等 stop 收尾后重新决策并正常启动新服务。
+    const first = await launchFixture(root, { FIXTURE_SPAWN_COUNTER: counter, FIXTURE_HEALTH_DELAY_MS: '800' })
+    const stopPromise = stopFixture(root, {}, { lockWaitMs: 8_000 })
+    await waitForLaunchLock(dataDir)
+    const launchPromise = launchFixture(root, { FIXTURE_SPAWN_COUNTER: counter }, { lockWaitMs: 8_000 })
+
+    const [stopSettled, launchSettled] = await Promise.allSettled([stopPromise, launchPromise])
+    if (stopSettled.status === 'rejected') throw stopSettled.reason
+    if (launchSettled.status === 'rejected') throw launchSettled.reason
+    const stopRes = (stopSettled as PromiseFulfilledResult<StopResult>).value
+    const launchRes = (launchSettled as PromiseFulfilledResult<LaunchResult>).value
+
+    // stop 先持锁：必须完整停掉旧服务；launch 只能在锁释放（状态已清、端口
+    // 已排空）后重新决策，因此必然是新启动而不是复用。
+    expect(stopRes).toMatchObject({ stopped: true, pid: first.pid })
+    await waitForExit(first.pid)
+    expect(launcher.pidAlive(first.pid)).toBe(false)
+    expect(launchRes.reused).toBe(false)
+    expect(launchRes.pid).not.toBe(first.pid)
+    expect(await spawnCount(dataDir)).toBe(2)
+    expect(await fetchHealth(launchRes.url)).toMatchObject({ body: { pid: launchRes.pid, runId: launchRes.runId } })
   }, 30_000)
 })
 
@@ -872,7 +958,7 @@ describe('release launcher probe hardening', () => {
       },
       stdio: 'ignore',
     })
-    activePids.add(child.pid)
+    activeChildren.push(child)
     // 夹具在监听后才写 ready 文件，轮询等待而不是立刻读取。
     let ready: { pid: number, port: number }
     for (let attempt = 0; ; attempt++) {

@@ -1,7 +1,7 @@
 {
   "format": "trainer-public-source",
   "version": "0.3.0",
-  "sourceCommit": "131a3a95239b395cfc71e59731eb48d48d51d2cf",
+  "sourceCommit": "fa15aaa4db7df531f5cb59e85fe6621a335992e0",
   "files": [
     {
       "path": ".gitattributes",
@@ -157,7 +157,7 @@
     },
     {
       "path": "scripts/release/build.mjs",
-      "sha256": "24e0b6bcdd0e11b6265a1bab26c28c5c5939145e959a49ecd1459e21c0886fdd"
+      "sha256": "4b7310c98214eeebbb30048c63248c3e94500fbd3270db0cc6d9137eb810ad73"
     },
     {
       "path": "scripts/release/create-shortcut.ps1",

@@ -464,13 +464,13 @@ async function runBuild(parsed, repoRoot) {
   await mkdir(out, { recursive: true })
   const reservation = await reserveOutputs(out, artifactName)
   try {
-    return await buildAndPublish(repoRoot, { nodeArchive, nodeChecksums, artifactName, version, headSha, nodeVersion, out })
+    return await buildAndPublish(repoRoot, { nodeArchive, nodeChecksums, artifactName, version, headSha, nodeVersion, out, pkg })
   } finally {
     await releaseOutputs(reservation)
   }
 }
 
-async function buildAndPublish(repoRoot, { nodeArchive, nodeChecksums, artifactName, version, headSha, nodeVersion, out }) {
+async function buildAndPublish(repoRoot, { nodeArchive, nodeChecksums, artifactName, version, headSha, nodeVersion, out, pkg }) {
 
   // Isolated production build run: server/web land under .runs/run-<uuid>, so the
   // worktree's web/dist, server/dist and any user database are never touched.

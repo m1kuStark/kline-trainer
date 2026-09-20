@@ -1,7 +1,7 @@
 {
   "format": "trainer-public-source",
   "version": "0.3.0",
-  "sourceCommit": "fa15aaa4db7df531f5cb59e85fe6621a335992e0",
+  "sourceCommit": "47c1be26b7ccfc05f6d2c8c05cd69220b332ec3e",
   "files": [
     {
       "path": ".gitattributes",
@@ -45,7 +45,7 @@
     },
     {
       "path": "docs/user/README.md",
-      "sha256": "a98d26bd1f7d6ba18ab4495a8487784b87bb4b49175ebef7d003216b268f5125"
+      "sha256": "e2735a3c7daeffaa612054a9d862be9453fcdd47fd3e3b6eb3b0bc964fede603"
     },
     {
       "path": "docs/user/install.md",

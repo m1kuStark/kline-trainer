@@ -1,7 +1,7 @@
 {
   "format": "trainer-public-source",
   "version": "0.3.0",
-  "sourceCommit": "47c1be26b7ccfc05f6d2c8c05cd69220b332ec3e",
+  "sourceCommit": "8c2db788191a093966448ad7f42f241f06b0deb6",
   "files": [
     {
       "path": ".gitattributes",
@@ -9,7 +9,7 @@
     },
     {
       "path": ".github/workflows/check.yml",
-      "sha256": "d1a976fea05d9ab5301b1c4070b690d94d9aff1e85d36626e3d91650e7882f76"
+      "sha256": "9ac9e1c9060ce243f97aa8094e5d5a99717bdcffbb916bf3bc1b80e468173196"
     },
     {
       "path": ".gitignore",

@@ -499,9 +499,10 @@ describe('training engine', () => {
     })
   })
 
-  it('settles a suspended stock at its last bar once the market tail passes planned_end', async () => {
-    // 600000 停在 7-31，600001 交易到 8-05：计划结束 8-03（周一）时全市场数据尾已越过
-    // → 个股缺线确属停牌，按最后交易日正常结算
+  it('keeps running when another stock trades past planned_end but the target stops at its own tail', async () => {
+    // 旧实现用"全市场数据尾越过计划结束"推断个股停牌并自动到期；
+    // 他股更新不能证明目标个股区间完整：600000 停在 7-31，600001 交易到 8-05，
+    // 计划结束 8-03（周一）时必须保守等待，而不是按停牌自动结算。
     await withCustomFixture([
       { file: 'sh600000.day', dates: weekdayDates('2026-07-01', 23) },
       { file: 'sh600001.day', dates: weekdayDates('2026-07-01', 26) },
@@ -510,6 +511,78 @@ describe('training engine', () => {
         tier: '1M', code: '600000', start_date: '2026-07-03',
       })
       expect(training.plannedEnd).toBe('2026-08-03')
+      for (let index = 0; index < 20; index += 1) {
+        await advanceTraining(database, config, training.id)
+      }
+      expect(trainingSnapshot(database, training.id).training.currentDate).toBe('2026-07-31')
+      const curveBefore = equityCurveOf(database, training.id)
+      let waited: HttpError | null = null
+      try {
+        await advanceTraining(database, config, training.id)
+      } catch (error) {
+        waited = error as HttpError
+      }
+      expect(waited).toBeInstanceOf(HttpError)
+      expect(waited?.statusCode).toBe(409)
+      expect(waited?.message).toContain('等待日线数据')
+      expect(waited?.message).toContain('2026-07-31')
+      expect(waited?.message).toContain('2026-08-03')
+      // 保守等待：仍 running、当前日与权益曲线原样保留；提前结算仍然可用
+      const snapshot = trainingSnapshot(database, training.id)
+      expect(snapshot.training.status).toBe('running')
+      expect(snapshot.training.currentDate).toBe('2026-07-31')
+      expect(equityCurveOf(database, training.id)).toEqual(curveBefore)
+      const settled = settleTraining(database, training.id)
+      expect(settled.status).toBe('settled')
+      expect(settled.earlySettle).toBe(true)
+      expect(settled.settleDate).toBe('2026-07-31')
+    })
+  })
+
+  it('keeps waiting when bars resume after planned_end but the interval has an unconfirmed gap', async () => {
+    // 结束日之后有记录不能单独证明区间无漏数：600000 交易 7-01..7-10 后中断，
+    // 8-10 起恢复（计划结束 8-01）。中间缺口可能是停牌也可能是数据缺失，不得按"尾日已覆盖"自动结算。
+    await withCustomFixture([
+      { file: 'sh600000.day', dates: [...weekdayDates('2026-07-01', 8), ...weekdayDates('2026-08-10', 5)] },
+    ], async ({ database, config }) => {
+      const training = await createTraining(database, config, {
+        tier: '1M', code: '600000', start_date: '2026-07-01',
+      })
+      expect(training.plannedEnd).toBe('2026-08-01')
+      for (let index = 0; index < 7; index += 1) {
+        await advanceTraining(database, config, training.id)
+      }
+      expect(trainingSnapshot(database, training.id).training.currentDate).toBe('2026-07-10')
+      let waited: HttpError | null = null
+      try {
+        await advanceTraining(database, config, training.id)
+      } catch (error) {
+        waited = error as HttpError
+      }
+      expect(waited).toBeInstanceOf(HttpError)
+      expect(waited?.statusCode).toBe(409)
+      expect(waited?.message).toContain('等待日线数据')
+      expect(waited?.message).toContain('2026-07-10')
+      expect(waited?.message).toContain('2026-08-01')
+      const snapshot = trainingSnapshot(database, training.id)
+      expect(snapshot.training.status).toBe('running')
+      expect(snapshot.training.currentDate).toBe('2026-07-10')
+      // 防未来不因等待失效：可见日线仍不含推进日之后的数据
+      const bars = await trainingBars(database, config, training.id, '1D')
+      expect(bars.at(-1)?.date).toBe('2026-07-10')
+    })
+  })
+
+  it('advances across a suspended stretch inside the interval and settles at the weekend bridge', async () => {
+    // 区间内停牌且复牌：7-13..7-17 无线，7-20 复牌——推进静默跳过停牌日，不算缺失、不等待；
+    // 之后数据完整走到 7-31，计划结束 8-01（周六）只含周末，正常到期结算。
+    await withCustomFixture([
+      { file: 'sh600000.day', dates: [...weekdayDates('2026-07-01', 8), ...weekdayDates('2026-07-20', 10)] },
+    ], async ({ database, config }) => {
+      const training = await createTraining(database, config, {
+        tier: '1M', code: '600000', start_date: '2026-07-01',
+      })
+      expect(training.plannedEnd).toBe('2026-08-01')
       let settled = false
       let guard = 0
       while (!settled && guard < 40) {
@@ -521,7 +594,9 @@ describe('training engine', () => {
       expect(snapshot.training.status).toBe('settled')
       expect(snapshot.training.earlySettle).toBe(false)
       expect(snapshot.training.settleDate).toBe('2026-07-31')
-      expect(snapshot.training.currentDate).toBe('2026-07-31')
+      // 权益曲线跳过停牌周：7-10 之后直接是 7-20，停牌日不产生权益点
+      const curve = equityCurveOf(database, training.id).map(point => point.date)
+      expect(curve).toEqual([...weekdayDates('2026-07-01', 8), ...weekdayDates('2026-07-20', 10)])
     })
   })
 

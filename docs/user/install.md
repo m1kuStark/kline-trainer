@@ -6,7 +6,7 @@
 
 ### 1. 下载
 
-到 [Releases 页面](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.1-windows-x64.zip`。发布包内已自带 Node 运行时，**无需安装 Node、npm 或 Python，无需订阅、账号或管理员权限**。
+到 [Releases 页面](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.2-windows-x64.zip`。发布包内已自带 Node 运行时，**无需安装 Node、npm 或 Python，无需订阅、账号或管理员权限**。
 
 ### 2. 解压
 
@@ -18,7 +18,9 @@
 
 ### 3. 配置通达信目录
 
-首次使用前，在解压目录里参照 `trainer.config.example.json` 新建一个 `trainer.config.json` 文件，把 `tdxRoot` 改成你的通达信安装目录。**JSON 中 Windows 路径的反斜杠要写成两个**：
+先双击 `Start.cmd` 尝试启动，可以不建配置文件。v0.3.2 只检查 `D:\MySoftWares\TDX`、`C:\new_tdx`、`C:\通达信` 三个位置，并不搜索整个电脑。能搜索股票、正常加载行情时可跳过手动配置；找到目录仍可能缺少日线或权息数据。
+
+若显示“TDX 未连接”，在解压目录中复制 `trainer.config.example.json`，将副本准确命名为 `trainer.config.json`，把 `tdxRoot` 改为通达信安装目录。资源管理器中先打开“显示 → 文件扩展名”，确认没有变成 `.json.txt` 或 `.jison`；配置向导尚未实现。**JSON 中 Windows 路径的反斜杠要写成两个**：
 
 ```json
 {

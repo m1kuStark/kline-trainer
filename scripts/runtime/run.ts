@@ -125,11 +125,14 @@ export function runEnv(run: RunManifest): NodeJS.ProcessEnv {
   }
 }
 
+const STOP_DEADLINE_MS = 5000
+const TREE_KILL_DEADLINE_MS = 10000
+
 async function stopChild(child: ChildProcess, done: Promise<unknown>, runId?: string) {
   if (child.exitCode !== null || child.signalCode !== null || !child.pid) return
   if (runId && child.connected) {
     child.send({ type: 'trainer:shutdown', runId }, () => {})
-    await Promise.race([done, delay(3000)])
+    await Promise.race([done, delay(STOP_DEADLINE_MS)])
   }
   if (child.exitCode === null && child.signalCode === null) {
     if (runId) {
@@ -138,15 +141,30 @@ async function stopChild(child: ChildProcess, done: Promise<unknown>, runId?: st
       // Generic commands below still need tree cleanup for their descendants.
       child.kill('SIGKILL')
     } else if (process.platform === 'win32') {
-      await exec('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }).catch(() => {})
+      const killer = exec('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true })
+      const result = await Promise.race([
+        killer.then(() => 'completed' as const, error => ({ kind: 'failed' as const, error })),
+        delay(TREE_KILL_DEADLINE_MS).then(() => ({ kind: 'timed-out' as const })),
+      ])
+      if (result !== 'completed') {
+        // A failed or timed-out tree kill leaves descendants unproven. Kill the
+        // root so the caller is bounded, then report incomplete cleanup.
+        child.kill('SIGKILL')
+        const closed = await Promise.race([done.then(() => true), delay(STOP_DEADLINE_MS).then(() => false)])
+        if (!closed || result.kind === 'timed-out') {
+          throw new Error(`Process tree for ${child.pid} was not confirmed terminated; cleanup incomplete`)
+        }
+        throw new Error(`Process tree for ${child.pid} could not be terminated; cleanup incomplete`, { cause: result.error })
+      }
     } else child.kill('SIGTERM')
-    await Promise.race([done, delay(3000)])
+    await Promise.race([done, delay(STOP_DEADLINE_MS)])
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
   }
-  if (runId) {
-    const closed = await Promise.race([done.then(() => true), delay(3000).then(() => false)])
-    if (!closed) throw new Error(`Owned server ${child.pid} did not close after forced shutdown`)
-  } else await done
+  const closed = await Promise.race([done.then(() => true), delay(STOP_DEADLINE_MS).then(() => false)])
+  if (!closed) {
+    if (runId) throw new Error(`Owned server ${child.pid} did not close after forced shutdown`)
+    throw new Error(`Process tree for ${child.pid} did not close after termination; cleanup incomplete`)
+  }
 }
 
 /** Execute only this worktree's installed Node entry points, without a command shell. */
@@ -161,11 +179,37 @@ export async function runNode(run: RunManifest, args: string[], logName: string,
   let spawnError: Error | undefined
   child.once('error', error => { spawnError = error })
   const done = new Promise<number | null>(resolveDone => child.once('close', code => resolveDone(code)))
-  const abort = () => { void stopChild(child, done) }
+  let aborted = false
+  let abortReason: unknown
+  let resolveCompletion: ((code: number | null) => void) | undefined
+  let rejectCompletion: ((reason?: unknown) => void) | undefined
+  const completion = new Promise<number | null>((resolve, reject) => {
+    resolveCompletion = resolve
+    rejectCompletion = reject
+  })
+  let stopPromise: Promise<void> | undefined
+  const abort = () => {
+    if (aborted) return
+    aborted = true
+    abortReason = options.signal?.reason ?? new Error('Runtime aborted')
+    stopPromise = stopChild(child, done)
+    void stopPromise.then(
+      () => rejectCompletion?.(abortReason),
+      async error => {
+        try { await log.write(`cleanup incomplete: ${error instanceof Error ? error.message : String(error)}\n`) } catch { /* retain the original cleanup error */ }
+        const failure = new Error(`cleanup incomplete; see ${logPath}`, { cause: abortReason })
+        Object.defineProperty(failure, 'cleanupError', { value: error, enumerable: false })
+        rejectCompletion?.(failure)
+      },
+    )
+  }
+  done.then(code => {
+    if (!aborted) resolveCompletion?.(code)
+  }, error => rejectCompletion?.(error))
   options.signal?.addEventListener('abort', abort, { once: true })
   try {
     if (options.signal?.aborted) abort()
-    const code = await done
+    const code = await completion
     options.signal?.throwIfAborted()
     if (spawnError) throw spawnError
     if (code !== 0) throw new Error(`Command exited with ${code}; see ${logPath}`)

@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerApi } from '../src/api.js'
 import { migrateDatabase } from '../src/db.js'
-import { createDataRefreshCoordinator, lastWeekdayBeforeToday } from '../src/data/refresh.js'
+import { createDataRefreshCoordinator, lastWeekdayBeforeToday, type DataRefreshCoordinator } from '../src/data/refresh.js'
 import { registerOnlineSource, type DailySource, type ScanOutcome } from '../src/data/source.js'
+import { createTdxSource, TDX_SOURCE_NAME } from '../src/data/tdxSource.js'
 import type { AppConfig } from '../src/config.js'
 
 // ===== 夹具：合成 TDX 目录（与 api.test.ts 同款字节布局） =====
@@ -148,6 +149,38 @@ async function refreshAndWait(app: FastifyInstance): Promise<{ taskId: string; f
 
 function fakeOnlineSource(name: string, scan: () => Promise<ScanOutcome>): DailySource {
   return { kind: 'online', name, available: async () => true, scan }
+}
+
+/** 整批版本标识：目录/权息/文件状态三个域必须指向同一批次（DATA-01）。 */
+function readBatchVersion(database: DatabaseSync): string | null {
+  const rows = database.prepare(
+    "SELECT key, value FROM cache_meta WHERE key IN ('catalog_batch', 'adjustment_batch', 'snapshot_batch')",
+  ).all() as unknown as Array<{ key: string; value: string }>
+  if (rows.length !== 3) return null
+  const values = new Set(rows.map(row => row.value))
+  if (values.size !== 1) return null
+  return [...values][0] ?? null
+}
+
+/** 直连协调器：触发一次新任务并等待终态（不经 Fastify 路由，便于检查数据库）。 */
+async function runCoordinatorAndWait(coordinator: DataRefreshCoordinator): Promise<StatusBody> {
+  const started = await coordinator.start()
+  expect(started).not.toBeNull()
+  expect(started?.joined).toBe(false)
+  let latest: StatusBody | null = null
+  await waitFor(async () => {
+    latest = await coordinator.getStatus()
+    return latest.state !== 'running'
+  })
+  return latest as unknown as StatusBody
+}
+
+function directCoordinator(database: DatabaseSync, tdxRoot: string, options: Parameters<typeof createDataRefreshCoordinator>[2] = {}): DataRefreshCoordinator {
+  return createDataRefreshCoordinator(
+    database,
+    { host: '127.0.0.1', port: 0, databasePath: ':memory:', tdxRoot },
+    options,
+  )
 }
 
 // ===== 用例 =====
@@ -444,5 +477,171 @@ describe('data refresh service', () => {
     expect(lastWeekdayBeforeToday(new Date('2026-09-13T12:00:00'))).toBe('2026-09-11') // 周日 → 上周五
     expect(lastWeekdayBeforeToday(new Date('2026-09-12T12:00:00'))).toBe('2026-09-11') // 周六 → 上周五
     expect(lastWeekdayBeforeToday(new Date('2026-09-07T12:00:00'))).toBe('2026-09-04') // 周一 → 上周五
+  })
+
+  // ===== DATA-01：整批发布与超时屏障 =====
+
+  it('k) keeps the last fully published batch when the adjustment cache fails after the catalog scan', async () => {
+    const root = await createFixtureRoot()
+    const database = new DatabaseSync(':memory:')
+    migrateDatabase(database)
+    const coordinator = directCoordinator(database, root)
+    try {
+      const first = await runCoordinatorAndWait(coordinator)
+      expect(first.state).toBe('updated')
+      // 目录、权息、文件状态共享同一批次标识
+      const batch1 = readBatchVersion(database)
+      expect(batch1).not.toBeNull()
+
+      // 目录扫描能成功（日线追加 D3），但权息刷新将失败（gbbq 消失）
+      await writeStockDayFile(root, 'sh', 'sh600519.day', [dateInt(D1), dateInt(D2), dateInt(D3)])
+      await writeStockDayFile(root, 'sz', 'sz000001.day', [dateInt(D1), dateInt(D2), dateInt(D3)])
+      const dayFile = join(root, 'vipdoc', 'sh', 'lday', 'sh600519.day')
+      const future = new Date(Date.now() + 5_000)
+      await utimes(dayFile, future, future)
+      await rm(join(root, 'T0002', 'hq_cache', 'gbbq'))
+
+      const second = await runCoordinatorAndWait(coordinator)
+      expect(second.state).toBe('failed')
+      expect(second.lastResult?.outcome).toBe('failed')
+      expect(second.lastResult?.message).toContain('刷新权息缓存失败')
+      // 失败必须保留上一份可用状态：目录不得单独发布 D3
+      const stock = database.prepare("SELECT last_date FROM stocks WHERE code = '600519'").get() as unknown as { last_date: string }
+      expect(stock.last_date).toBe(D2)
+      const snapshotRow = database.prepare("SELECT max_date FROM data_file_state WHERE path LIKE '%600519%'").get() as unknown as { max_date: string }
+      expect(snapshotRow.max_date).toBe(D2)
+      // 批次标识仍指向上一份完整批次
+      expect(readBatchVersion(database)).toBe(batch1)
+
+      // 恢复 gbbq 后可整批发布新状态
+      await writeGbbq(root)
+      const third = await runCoordinatorAndWait(coordinator)
+      expect(third.state).toBe('updated')
+      const recovered = database.prepare("SELECT last_date FROM stocks WHERE code = '600519'").get() as unknown as { last_date: string }
+      expect(recovered.last_date).toBe(D3)
+      const batch3 = readBatchVersion(database)
+      expect(batch3).not.toBeNull()
+      expect(batch3).not.toBe(batch1)
+    } finally {
+      database.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('l) late async work after the watchdog cannot publish and cannot clobber a newer task', async () => {
+    const root = await createFixtureRoot()
+    const database = new DatabaseSync(':memory:')
+    migrateDatabase(database)
+    // 门控只挂起第二次发布（超时任务 A）；首扫与后续任务 B 正常放行
+    let publishCalls = 0
+    let releaseStale: (() => void) | null = null
+    const staleGate = new Promise<void>(resolve => { releaseStale = resolve })
+    const coordinator = directCoordinator(database, root, {
+      timeoutMs: 120,
+      beforePublish: async () => {
+        publishCalls += 1
+        if (publishCalls === 2) await staleGate
+      },
+    })
+    try {
+      const first = await runCoordinatorAndWait(coordinator)
+      expect(first.state).toBe('updated')
+      const batch1 = readBatchVersion(database)
+      expect(batch1).not.toBeNull()
+
+      // 任务 A：全部扫描可成功，但发布被门控挂起，直到看门狗超时
+      await writeStockDayFile(root, 'sh', 'sh600519.day', [dateInt(D1), dateInt(D2), dateInt(D3)])
+      await writeStockDayFile(root, 'sz', 'sz000001.day', [dateInt(D1), dateInt(D2), dateInt(D3)])
+      const dayFile = join(root, 'vipdoc', 'sh', 'lday', 'sh600519.day')
+      const future = new Date(Date.now() + 5_000)
+      await utimes(dayFile, future, future)
+      const stale = await coordinator.start()
+      expect(stale?.joined).toBe(false)
+      await waitFor(async () => (await coordinator.getStatus()).state === 'failed')
+      const failedStatus = await coordinator.getStatus()
+      expect(failedStatus.lastResult?.message).toContain('扫描超时')
+
+      // 任务 B：在任务 A 仍挂起时安全开始，并整批发布
+      const fresh = await coordinator.start()
+      expect(fresh?.joined).toBe(false)
+      await waitFor(async () => (await coordinator.getStatus()).state !== 'running')
+      const afterFresh = await coordinator.getStatus()
+      expect(afterFresh.state).toBe('updated')
+      const batch2 = readBatchVersion(database)
+      expect(batch2).not.toBeNull()
+      expect(batch2).not.toBe(batch1)
+
+      // 释放任务 A：迟到流程不得再写库（既不覆盖批次，也不改写日志）
+      releaseStale?.()
+      await new Promise(resolve => setTimeout(resolve, 150))
+      expect(readBatchVersion(database)).toBe(batch2)
+      const logs = database.prepare('SELECT outcome, message FROM data_refresh_log ORDER BY id').all() as unknown as Array<{ outcome: string; message: string }>
+      expect(logs.map(log => log.outcome)).toEqual(['updated', 'failed', 'updated'])
+      expect(logs[1]?.message).toContain('扫描超时')
+      const statusAfter = await coordinator.getStatus()
+      expect(statusAfter.state).toBe('updated')
+    } finally {
+      database.close()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('m) fails the whole batch when the catalog scan is incomplete mid-task', async () => {
+    const root = await createFixtureRoot()
+    const database = new DatabaseSync(':memory:')
+    migrateDatabase(database)
+    // 包装真实 TDX 来源：第二次扫描成功返回后，立刻移除 sz 目录，制造"扫描成功但目录阶段不完整"
+    const real = createTdxSource(root)
+    let scanCalls = 0
+    const coordinator = directCoordinator(database, root, {
+      tdxSource: {
+        kind: 'tdx',
+        name: TDX_SOURCE_NAME,
+        available: () => real.available(),
+        scan: async previous => {
+          const outcome = await real.scan(previous)
+          scanCalls += 1
+          if (scanCalls === 2) await rm(join(root, 'vipdoc', 'sz', 'lday'), { recursive: true, force: true })
+          return outcome
+        },
+      },
+    })
+    try {
+      const first = await runCoordinatorAndWait(coordinator)
+      expect(first.state).toBe('updated')
+      const batch1 = readBatchVersion(database)
+      expect(batch1).not.toBeNull()
+
+      // sh 追加 D3；目录阶段将发现 sz 不可读
+      await writeStockDayFile(root, 'sh', 'sh600519.day', [dateInt(D1), dateInt(D2), dateInt(D3)])
+      const dayFile = join(root, 'vipdoc', 'sh', 'lday', 'sh600519.day')
+      const future = new Date(Date.now() + 5_000)
+      await utimes(dayFile, future, future)
+
+      const second = await runCoordinatorAndWait(coordinator)
+      expect(second.state).toBe('failed')
+      expect(second.lastResult?.outcome).toBe('failed')
+      expect(second.lastResult?.message).toContain('刷新股票目录失败')
+      expect(second.lastResult?.message).toContain('sz')
+      // 扫描不完整＝整批不发布：健康的 sh 也不得单独更新
+      const stock = database.prepare("SELECT last_date FROM stocks WHERE code = '600519'").get() as unknown as { last_date: string }
+      expect(stock.last_date).toBe(D2)
+      const snapshotRow = database.prepare("SELECT max_date FROM data_file_state WHERE path LIKE '%600519%'").get() as unknown as { max_date: string }
+      expect(snapshotRow.max_date).toBe(D2)
+      expect(readBatchVersion(database)).toBe(batch1)
+
+      // 恢复 sz 后整批成功
+      await writeStockDayFile(root, 'sz', 'sz000001.day', [dateInt(D1), dateInt(D2)])
+      const third = await runCoordinatorAndWait(coordinator)
+      expect(third.state).toBe('updated')
+      const recovered = database.prepare("SELECT last_date FROM stocks WHERE code = '600519'").get() as unknown as { last_date: string }
+      expect(recovered.last_date).toBe(D3)
+      const batch3 = readBatchVersion(database)
+      expect(batch3).not.toBeNull()
+      expect(batch3).not.toBe(batch1)
+    } finally {
+      database.close()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

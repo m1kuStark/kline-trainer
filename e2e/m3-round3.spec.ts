@@ -16,6 +16,8 @@ async function open(page: Page): Promise<number> {
   await page.goto('/')
   await expect(page.locator('.drawing-save-status')).toHaveText('已保存')
   await expect(page.locator('.loading-dot')).not.toBeVisible()
+  await expect.poll(() => page.evaluate(() => Boolean((window as any).__trainerChart?.bars?.().length))).toBe(true)
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   return id
 }
 async function choose(page: Page, name: string) {

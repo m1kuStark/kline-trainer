@@ -201,12 +201,6 @@ function onTrainingEnded(): void {
       <div v-if="envError && view !== 'replay'" class="env-error">{{ envError }}：请先运行 npm run dev 或 npm start 启动后端</div>
 
       <template v-if="view === 'launcher'">
-        <section class="recording-library launcher-library" aria-label="操作录制">
-          <div><strong>训练录像</strong><span>回顾自己的训练，或导入他人分享的录像。</span></div>
-          <button class="ghost-button" @click="showLibrary">查看训练录像</button>
-          <label class="recording-import">导入录像<input type="file" accept=".json,.gz,.trainer-session" aria-label="导入录制" @change="importRecording" /></label>
-          <p v-if="recordingError" class="error-text" role="alert">{{ recordingError }}</p>
-        </section>
         <Launcher @created="onCreated" />
       </template>
       <section v-else-if="view === 'library'" class="recording-library recording-library-page" aria-label="训练录像库">
@@ -228,8 +222,6 @@ function onTrainingEnded(): void {
 
 <style scoped>
 .recording-library { margin: 10px 28px 0; padding: 10px 14px; border: 1px solid var(--surface-border, #dfe5eb); border-radius: 8px; font-size: 12px; }
-.launcher-library { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.launcher-library > div { flex: 1; display: grid; gap: 5px; min-width: 180px; }
 .recording-import { display: inline-flex; position: relative; align-items: center; border: 1px solid #94bec5; padding: 8px 12px; border-radius: 4px; cursor: pointer; color: #2b8b99; }
 .recording-import input { position: absolute; opacity: 0; inset: 0; width: 100%; height: 100%; cursor: pointer; }
 .recording-import:focus-within { outline: 2px solid #2b8b99; outline-offset: 2px; }

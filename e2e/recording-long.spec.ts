@@ -102,6 +102,8 @@ test('两年前复权训练含交易画线周期切换，可压缩导出并离�
     expect(checkpoint.chart.bars.every(bar => (bar.date.length === 7 ? `${bar.date}-01` : bar.date) <= cutoff)).toBe(true)
   }
   await page.getByRole('button', { name: '完成，返回首页', exact: true }).click()
+  await page.getByRole('button', { name: '训练录像', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '训练录像', exact: true })).toBeVisible()
   await page.route('**/api/**', route => route.abort())
   const writes: string[] = []
   page.on('request', request => { if (/\/api\//.test(request.url()) && ['POST','PUT','DELETE'].includes(request.method())) writes.push(request.url()) })

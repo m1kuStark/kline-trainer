@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 
 const roots: string[] = []
 const activeServers: { stop(): Promise<void> }[] = []
@@ -157,11 +158,23 @@ describe('runtime processes', () => {
     const { createRun, runNode } = await import('../../scripts/runtime/run.js')
     const run = await createRun(await temporaryRoot(), 'verify')
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 300)
+    const logPath = join(run.artifactsDir, 'cancel.log')
+    const running = runNode(run, ['-e', 'console.log("child alive");setInterval(() => {},1000)'], 'cancel.log', { signal: controller.signal })
+    running.catch(() => {})
     try {
-      await expect(runNode(run, ['-e', 'console.log("child alive");setInterval(() => {},1000)'], 'cancel.log', { signal: controller.signal })).rejects.toThrow(/abort/i)
-      expect(await readFile(join(run.artifactsDir, 'cancel.log'), 'utf8')).toContain('child alive')
-    } finally { clearTimeout(timer) }
+      const deadline = Date.now() + 8_000
+      while (Date.now() < deadline) {
+        if ((await readFile(logPath, 'utf8').catch(() => '')).includes('child alive')) break
+        await delay(25)
+      }
+      expect(await readFile(logPath, 'utf8')).toContain('child alive')
+      controller.abort(new Error('abort requested'))
+      await expect(running).rejects.toThrow(/abort/i)
+      expect(await readFile(logPath, 'utf8')).toContain('child alive')
+    } finally {
+      if (!controller.signal.aborted) controller.abort(new Error('test cleanup'))
+      await running.catch(() => {})
+    }
   }, 15_000)
 
   it('builds and serves two concurrent runs without replacing production assets or sharing ports/databases', async () => {

@@ -13,10 +13,10 @@
 
 ## 快速开始（Windows）
 
-1. 到 [Releases](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.1-windows-x64.zip`（该文件由维护者随 v0.3.1 发布，页面暂未出现时请稍候）。安装包自带运行环境，**无需安装 Node、npm 或 Python，无需订阅、模型或账号**。
+1. 到 [Releases](https://github.com/m1kuStark/kline-trainer/releases) 下载 `kline-trainer-v0.3.2-windows-x64.zip`。安装包自带运行环境，**无需安装 Node、npm 或 Python，无需订阅、模型或账号**。
 2. 右键完整解压到一个固定文件夹（之后不要移动它）。
-3. 在解压目录里参照 `trainer.config.example.json` 新建 `trainer.config.json`，把 `tdxRoot` 指向你的通达信目录（JSON 里反斜杠写成 `\\`），并确认通达信已下载日线数据。
-4. 双击 `Start.cmd`，浏览器自动打开 `http://127.0.0.1:8787`。
+3. 双击 `Start.cmd`，浏览器自动打开 `http://127.0.0.1:8787`。程序会检查少数预设通达信目录；能搜索到股票并加载行情时，可以直接开始训练。
+4. 若提示未连接通达信或缺数据，按[安装说明](docs/user/install.md)配置目录并在通达信下载日线。v0.3.2 仍需手动配置未被发现的安装路径；自动发现和引导式接入尚未作为发布功能提供。
 5. 双击 `Create Shortcut.cmd` 创建桌面图标，以后从图标启动。
 
 程序只监听本机 `127.0.0.1`，不对外网开放。详细步骤与配置字段见[安装与配置](docs/user/install.md)。
@@ -29,6 +29,13 @@
 | 下载安装、通达信目录配置、源码运行 | [安装与配置](docs/user/install.md) |
 | 录制、回放与分享 | [录制说明](docs/user/recording.md) |
 | 启动失败、找不到数据、端口占用等 | [常见问题](docs/user/troubleshooting.md) |
+
+## v0.3.2 更新
+
+- 首页录像入口统一到左侧“训练录像”，导入、历史和回放路径保持一致。
+- 录像回放支持按交易日推进、播放控制、日/周/月观察和离线读取；旧录像迁移与缺少当日日线的降级提示保持兼容。
+- Windows 启动器和隔离运行时的停止、重复启动、取消失败记录更加明确，无法证明整棵进程树退出时会保留诊断信息。
+- 当前版本仍只读取本机通达信文件，不联网下载行情；通达信路径仍按安装说明配置。
 
 ## 从源码运行
 

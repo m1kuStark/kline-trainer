@@ -1,11 +1,11 @@
 {
   "format": "trainer-public-source",
-  "version": "0.3.1",
-  "sourceCommit": "4c93668ccc5da99d58340345774e17ad1547bd29",
+  "version": "0.3.2",
+  "sourceCommit": "1eb9a0e83995d076ba185a7507044652a46d6145",
   "files": [
     {
       "path": ".gitattributes",
-      "sha256": "1d7a481b355f361b1621ef664b56aa90d44b4387203cc5f2e0ee880105030394"
+      "sha256": "ca5ec168d79cf3cad562e846d266e245967c53b1b6f54f03b5a7f2eefb799a1e"
     },
     {
       "path": ".github/workflows/check.yml",
@@ -13,7 +13,7 @@
     },
     {
       "path": ".gitignore",
-      "sha256": "e299723809c12f1f77c453e82a3e6924c9f034e94dffb16248457930e74a17f2"
+      "sha256": "ed8af3ca2679a56104939b2f48e052c0e530ff0c4e14d90cbed2c8b065103adf"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -25,7 +25,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "66978fb109352537db6f33179827e6cb2505ab7fa588ab57824eb37cf85f7120"
+      "sha256": "1c220eff1da7089c7cfaa4ef04aba35a13ab2ae88ac7c4f913a9d796fb64b9a1"
     },
     {
       "path": "SECURITY.md",
@@ -45,11 +45,11 @@
     },
     {
       "path": "docs/user/README.md",
-      "sha256": "33508748e33c85f9b5fb3c16707d824644e4171258a6dd3f18f7a438cccbbd36"
+      "sha256": "9f54f3be6a8b2184219cd87e327c3910d15303c945283d09b91ec3931a864477"
     },
     {
       "path": "docs/user/install.md",
-      "sha256": "5f4a55e4dd5326ae7929246a9b990abcc72048a98fe0193daf758418a306783e"
+      "sha256": "a4acb169834eac72a23ddf204f079b1da3435b6b5c7df088bf65fdf34547760f"
     },
     {
       "path": "docs/user/recording.md",
@@ -61,7 +61,7 @@
     },
     {
       "path": "e2e/acceptance-feedback.spec.ts",
-      "sha256": "0dbd3f8160dd59c83117f1682a86090f6906f762ae1008cc3df81a008bf4cebb"
+      "sha256": "7d08cdd151adf0550056eb5ad6de1d057b48bd82c8bf0731a0fea7ce1080e6a1"
     },
     {
       "path": "e2e/compact-chart.spec.ts",
@@ -93,7 +93,7 @@
     },
     {
       "path": "e2e/m3-round3.spec.ts",
-      "sha256": "30c3314c587b755c373af4f3a10a37f87a00fbadde254da906374f7ec89b423f"
+      "sha256": "af727d665ff175fe6a8c60920b905ad8e0295e9a3924b62d925182bd64dd6bf2"
     },
     {
       "path": "e2e/m3-tools.spec.ts",
@@ -105,7 +105,7 @@
     },
     {
       "path": "e2e/recording-daily.spec.ts",
-      "sha256": "21f100b31e84cd19709294724f7dbfd825c6aa12df8a0e3da3aee79965054d97"
+      "sha256": "9ade00d689f6b2c308f4604c2a1c1701d0eee5987648f06d7b6d7d83c7151394"
     },
     {
       "path": "e2e/recording-file.ts",
@@ -113,15 +113,15 @@
     },
     {
       "path": "e2e/recording-long.spec.ts",
-      "sha256": "2e3b44fd65a4ceca0ac3fefbf7c70506ab01d5208f1b61ae267909d516ad1ed5"
+      "sha256": "5529313b4f4507ec752d8d89d1a474f5724d0ce87456cf6ac7959036c6f3c4f4"
     },
     {
       "path": "e2e/recording-migration.spec.ts",
-      "sha256": "69741cb3d56aaf9bdc807704c9a614b37b782cb9e2b6415365b388f596c04207"
+      "sha256": "cc2d34cb4b7b6e33d62309a01d70fbed1671bfbdfdcff8ccc16d5b242f3a0021"
     },
     {
       "path": "e2e/recording.spec.ts",
-      "sha256": "b54314b9d94a7823c43c74fe53d78a6e3ad35e62be9d633cda934c057e36c518"
+      "sha256": "052c71f459c300b676f9891525ddd74f64af8119ba6d56ea664ecdc7534c1384"
     },
     {
       "path": "e2e/runtime.ts",
@@ -133,11 +133,11 @@
     },
     {
       "path": "package-lock.json",
-      "sha256": "32edf855572508d786d9ad907631c66012dd3594de69ef165d9d4acd69d0e4bb"
+      "sha256": "a820d27b310441ee87d00b20fb5744578416d74bcc8e749017c258ad7d2d6d22"
     },
     {
       "path": "package.json",
-      "sha256": "e418a24541bc9ce1c38ab72a6a2f9c863fd0f0c8f851caeab2c0a3cbaaa5c538"
+      "sha256": "bb2530e40aa55f7878d32c807e389986f294b9e389ea9c90bc9713c602c447b2"
     },
     {
       "path": "playwright.config.ts",
@@ -185,7 +185,7 @@
     },
     {
       "path": "scripts/runtime/run.ts",
-      "sha256": "80404d59727e6051d96bf13a9c049749d43a9997b6e1091de45a895a5f78cc33"
+      "sha256": "3f71fb0152d39b88973637e32f51d243d205da1ae26c34b710142ff455c81353"
     },
     {
       "path": "scripts/runtime/snapshot.ts",
@@ -204,8 +204,12 @@
       "sha256": "fe459290bf81c6f0e36eccb228559903c0e287b042a6553f9b13eef3661ef1a8"
     },
     {
+      "path": "server/src/data/freshness.ts",
+      "sha256": "62ef4aae017419a4f65ebe66162e6993f96ad11b43c7f922c1dc718d29fab0fe"
+    },
+    {
       "path": "server/src/data/refresh.ts",
-      "sha256": "004c1e487044c49f63ddb031ee12cf002831339d2cd7683f998630b8c72dce72"
+      "sha256": "081118359202168097bdcfe7e84c267566d3775e1666476d5b0e1a07a4787887"
     },
     {
       "path": "server/src/data/selection.ts",
@@ -213,7 +217,7 @@
     },
     {
       "path": "server/src/data/snapshot.ts",
-      "sha256": "04bce4cfa7184d9d03ad00faa25111d0df342508d6e7cd6719900dc84b293b59"
+      "sha256": "0b39003a20dc065777358595def42afd74a800e209b7737fdc3a83f38046c99b"
     },
     {
       "path": "server/src/data/source.ts",
@@ -241,11 +245,11 @@
     },
     {
       "path": "server/src/tdx/adjustment-cache.ts",
-      "sha256": "d650f055a64d4a3c27d09e76ba7413cff103c45b719960dbc641b59e0cb6fe44"
+      "sha256": "e143dc76d75e6a4ada4aa752cecadb22aa12da568b4bb8a2cf11d19ead7b7b2e"
     },
     {
       "path": "server/src/tdx/catalog.ts",
-      "sha256": "6793300992cbd8f61ca269d4c725d3c51c761b79384b7b4736a1da74bde9f4ef"
+      "sha256": "d753e06522222d922535d1b01daf0b0f57b1617fcae37e0d21f05c5aa861f70c"
     },
     {
       "path": "server/src/tdx/dayfile.ts",
@@ -258,6 +262,10 @@
     {
       "path": "server/src/tdx/gbbq.ts",
       "sha256": "0b12af0c85b03b104751b9e75a7c71b3a78db3235dd8ecabfb51d8cb85a19bc6"
+    },
+    {
+      "path": "server/src/tdx/inspect.ts",
+      "sha256": "c48d6d96053e0b94fec5a968020c9c3b75b4aea5e686a023d1ae2afb383ffa61"
     },
     {
       "path": "server/src/tdx/kline.ts",
@@ -285,7 +293,11 @@
     },
     {
       "path": "server/src/train/engine.ts",
-      "sha256": "3f43d36945a6b0a4d8f2f62d24ad8103bc3bea4143d272017e453743bd19a9ac"
+      "sha256": "3dc72ee683eee192a954afe9bcfb031c41783700981bec4c37fa9d4ca42f25f9"
+    },
+    {
+      "path": "server/src/train/range.ts",
+      "sha256": "30091734404e12df53e37666ca8a3dcba0ee8b78b9578b1a86a2d267dbafd607"
     },
     {
       "path": "server/src/verification.ts",
@@ -316,8 +328,12 @@
       "sha256": "1ddda4b702d7f117cc126ddda73b430aff82a1dda07c4d5fbf36985ed7eb7672"
     },
     {
+      "path": "server/test/data-freshness.test.ts",
+      "sha256": "4f2d5a5cabbc40dc404e5720e7d36214337db9b8bdf8de132d7e2d107895fb77"
+    },
+    {
       "path": "server/test/data-refresh.test.ts",
-      "sha256": "c51aba938ec01b05bfcf2cf951e004affa8ef13cb6c59f064928d6872bd26148"
+      "sha256": "a5dc9ec2b355842edf75b133107ea84358c5e89120c2d806181c1472ccb09307"
     },
     {
       "path": "server/test/dayfile.test.ts",
@@ -449,7 +465,7 @@
     },
     {
       "path": "server/test/recording-context.test.ts",
-      "sha256": "9e786bd051b931c2559a192685fdb6e1d4d42de7fbe0772500f788d92e6cdeef"
+      "sha256": "41ffa728e974800e5b551dde54f1c8dfb070a1af9428da2e68ae21c4a95c3c9c"
     },
     {
       "path": "server/test/recording-core.test.ts",
@@ -500,8 +516,12 @@
       "sha256": "576e76af8f8879e8bd96048208265104b7f7943c8de6ce42c54a0e8becddc9b8"
     },
     {
+      "path": "server/test/runtime-cancel.test.ts",
+      "sha256": "49c806bafb349cbd795c0a73d1a5ae3e8e3a9cd1758a7b532d8494c52571cdb6"
+    },
+    {
       "path": "server/test/runtime-isolation.test.ts",
-      "sha256": "f542a6495ec7e00f62305e366abb676527dda85f06589a6097009f2d47f8f021"
+      "sha256": "e870dd39aab2339a8eb7f7f9b0bedcea6b204d27c800e077752b19231ffae645"
     },
     {
       "path": "server/test/runtime-shutdown.test.ts",
@@ -514,6 +534,10 @@
     {
       "path": "server/test/symbol.test.ts",
       "sha256": "3c45bffad6c31303f8561cf189733a04fbe44444fc7a999f40013ea28de268c7"
+    },
+    {
+      "path": "server/test/tdx-inspect.test.ts",
+      "sha256": "a656126a57fd35437858cfc8ee36bd9239d8b3f460d2a444f90bb287f23d8bed"
     },
     {
       "path": "server/test/tool-favorites.test.ts",
@@ -529,7 +553,11 @@
     },
     {
       "path": "server/test/train-engine.test.ts",
-      "sha256": "852e7f0cef8ad14d80c8f0fe015665c4e8100b99422d6c8030f140c04c2feda2"
+      "sha256": "14f48df20ff7c9a459f8578fb82daa58474de31876dae0fb44c81857b188a15c"
+    },
+    {
+      "path": "server/test/train-range.test.ts",
+      "sha256": "83c6ef8aaa28149a9babd0d0ef9816ec8872b28d007175273b9e1f5783a7ab18"
     },
     {
       "path": "server/test/verification.test.ts",
@@ -541,7 +569,7 @@
     },
     {
       "path": "server/vitest.config.ts",
-      "sha256": "50802f286e29b6d5fa2a75ac5c86930b810b618dada82dfb80ca56895eefa3d8"
+      "sha256": "65a327d869a00336cb4c1c7f9a1aa6cbe82c8f9eb2c1a94d1f6f33aab5ec7b8a"
     },
     {
       "path": "third-party/dependencies.json",
@@ -997,7 +1025,7 @@
     },
     {
       "path": "web/src/App.vue",
-      "sha256": "26be752532e3fcc382d05513b09fba02d390cab705caf85f079f9fb4fc4870db"
+      "sha256": "bb9c55352cdd0a8c929460a18d6991a47d35d6d9cbb185009c4fa062c73073b8"
     },
     {
       "path": "web/src/TradeMarkerRail.vue",
@@ -1109,7 +1137,7 @@
     },
     {
       "path": "web/src/recording/recordingFile.ts",
-      "sha256": "d0080c2fdf18b96c353eaea8d1cc70204311c2c42e79a38cdb6dd0b8e18d4a16"
+      "sha256": "6270399e579828729817d6a94846c484fe081bd7be590f9751b1ba40e5e30f72"
     },
     {
       "path": "web/src/recording/recordingLease.ts",

@@ -120,6 +120,8 @@ test('默认录制交易拒单、周期和画线，暂停恢复后可导出并�
   expect(recording.gaps.length).toBeGreaterThan(0)
   await settleThroughConfirmation(page)
   // Replay must consume the file even if all backend endpoints are unavailable.
+  await page.getByRole('button', { name: '训练录像', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '训练录像', exact: true })).toBeVisible()
   await page.route('**/api/**', route => route.abort())
   await page.getByLabel('导入录制', { exact: true }).setInputFiles(output)
   await expect(page.getByRole('button', { name: '关闭回放', exact: true })).toBeVisible()

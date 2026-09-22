@@ -1,18 +1,20 @@
 // 统一日线刷新协调器：手动按钮、启动检查、窗口激活与内部调用共用。
 // 单飞行任务：同一来源同一时刻最多一个扫描任务，重复触发复用（joined=true）。
-// 流程：扫描目录与日线（稳定读取）→ 刷新股票目录 → 刷新权息缓存 → 全部成功才一次性提交
-// （快照表＋刷新日志）；任一步失败任务置 failed（中文可行动原因），保留上一次全部有效缓存与快照。
-// 超时看门狗防悬挂 running；任务状态只在内存，服务重启自然回到 idle，绝不从库里恢复出 running。
+// 流程：扫描目录与日线（稳定读取）→ 目录扫描（只读）→ 权息扫描（只读）→ 发布屏障 →
+// 单事务整批提交（目录＋权息＋文件快照＋成功日志＋批次标识）；任一步失败任务置 failed
+// （中文可行动原因），上一份完整批次原样保留。目录扫描不完整（failures 非空）同样整批失败。
+// 迟到写入屏障：看门狗超时或任务被结束后，任何迟到的异步步骤都不得再写库；新任务可安全开始。
+// 任务状态只在内存，服务重启自然回到 idle，绝不从库里恢复出 running。
 
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AppConfig } from '../config.js'
-import { refreshStockCatalog } from '../tdx/catalog.js'
-import { refreshAdjustmentCache } from '../tdx/adjustment-cache.js'
+import { applyCatalogChanges, scanCatalogChanges, type CatalogChanges } from '../tdx/catalog.js'
+import { applyAdjustmentChanges, scanAdjustmentChanges, type AdjustmentChanges } from '../tdx/adjustment-cache.js'
 import { selectSource } from './selection.js'
 import { createTdxSource } from './tdxSource.js'
-import { appendFailureLog, commitScanResult, loadRefreshLog, loadScanBaseline, type RefreshLogEntry, type RefreshOutcome } from './snapshot.js'
+import { appendFailureLog, applyScanResult, loadRefreshLog, loadScanBaseline, publishBatchVersion, type RefreshLogEntry, type RefreshOutcome } from './snapshot.js'
 import type { DailySource, ScanOutcome } from './source.js'
 
 /** 单次刷新任务的看门狗超时（毫秒） */
@@ -56,6 +58,10 @@ export interface DataStatusPayload {
 export interface CreateRefreshCoordinatorOptions {
   /** 测试可注入极短超时；默认 REFRESH_TIMEOUT_MS */
   timeoutMs?: number
+  /** 测试注入：替换默认 TDX 来源（包装真实扫描、在扫描后变更夹具） */
+  tdxSource?: DailySource
+  /** 测试注入：发布屏障前最后一次 await，用于把看门狗超时插到目录/权息扫描之后 */
+  beforePublish?: () => Promise<void>
 }
 
 interface RunningTask { id: string }
@@ -82,7 +88,7 @@ export function createDataRefreshCoordinator(
   options: CreateRefreshCoordinatorOptions = {},
 ) {
   const timeoutMs = options.timeoutMs ?? REFRESH_TIMEOUT_MS
-  const tdxSource = createTdxSource(config.tdxRoot)
+  const tdxSource = options.tdxSource ?? createTdxSource(config.tdxRoot)
   let running: RunningTask | null = null
   let lastState: Exclude<RefreshState, 'running'> = 'idle'
 
@@ -105,6 +111,9 @@ export function createDataRefreshCoordinator(
 
   async function runTask(taskId: string, source: DailySource): Promise<void> {
     let timedOut = false
+    // 迟到写入屏障：超时或任务已结束（含新任务接管）后，任何迟到步骤一律不得再写库。
+    // 检查与整批事务之间没有任何 await（node:sqlite 同步执行），事件循环不会插入其他写入。
+    const barrierOpen = (): boolean => !timedOut && running?.id === taskId
     const watchdog = setTimeout(() => {
       timedOut = true
       const entry: RefreshLogEntry = {
@@ -128,21 +137,30 @@ export function createDataRefreshCoordinator(
     try {
       const previous = loadScanBaseline(database)
       const outcome = await source.scan(previous)
-      if (timedOut) return
+      if (!barrierOpen()) return
+      let catalogChanges: CatalogChanges | null = null
+      let adjustmentChanges: AdjustmentChanges | null = null
       if (source.kind === 'tdx') {
         if (!config.tdxRoot) throw new Error('未检测到通达信数据目录，无法刷新股票目录与权息缓存')
         try {
-          await refreshStockCatalog(database, config.tdxRoot)
+          catalogChanges = await scanCatalogChanges(database, config.tdxRoot)
         } catch (error) {
           throw new Error(`刷新股票目录失败：${errorMessage(error)}。请检查通达信数据目录后重试`)
         }
+        if (catalogChanges.failures.length > 0) {
+          // 目录扫描不完整＝本批不可发布：整体按失败处理，保留上一份完整批次，绝不发布半批
+          throw new Error(`刷新股票目录失败：${catalogChanges.failures.map(item => item.message).join('；')}。本次不发布任何变更，请检查磁盘状态后重试`)
+        }
+        if (!barrierOpen()) return
         try {
-          await refreshAdjustmentCache(database, config.tdxRoot)
+          adjustmentChanges = await scanAdjustmentChanges(database, config.tdxRoot)
         } catch (error) {
           throw new Error(`刷新权息缓存失败：无法读取 ${join(config.tdxRoot, 'T0002', 'hq_cache', 'gbbq')} —— ${errorMessage(error)}。请确认通达信已完成盘后数据下载后重试`)
         }
+        if (!barrierOpen()) return
       }
-      if (timedOut) return
+      if (options.beforePublish) await options.beforePublish()
+      if (!barrierOpen()) return
 
       const finishedAt = new Date().toISOString()
       const resultOutcome: RefreshOutcome = outcome.baseline || outcome.added > 0 || outcome.removed > 0 || outcome.revised > 0
@@ -158,10 +176,23 @@ export function createDataRefreshCoordinator(
         sourceMaxDate: outcome.sourceMaxDate,
         message: describeOutcome(outcome),
       }
-      commitScanResult(database, outcome, entry)
+      // 发布屏障：目录、权息、文件快照、成功日志与批次标识在同一事务内一次性生效；
+      // 任一环节失败整体回滚，上一份完整批次原样保留。
+      const batchId = randomUUID()
+      database.exec('BEGIN IMMEDIATE')
+      try {
+        if (catalogChanges) applyCatalogChanges(database, catalogChanges)
+        if (adjustmentChanges) applyAdjustmentChanges(database, adjustmentChanges)
+        applyScanResult(database, outcome, entry)
+        publishBatchVersion(database, batchId)
+        database.exec('COMMIT')
+      } catch (error) {
+        database.exec('ROLLBACK')
+        throw error
+      }
       complete(taskId, resultOutcome, entry)
     } catch (error) {
-      if (timedOut) return
+      if (!barrierOpen()) return
       const entry: RefreshLogEntry = {
         finishedAt: new Date().toISOString(),
         outcome: 'failed',

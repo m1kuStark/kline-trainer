@@ -112,11 +112,22 @@ test('按交易日回放：键盘步进、观察周期独立、画线终态与�
     if (/\/api\//.test(request.url()) && ['POST', 'PUT', 'DELETE'].includes(request.method())) writes.push(request.url())
   })
 
-  await page.goto('/')
+  await Promise.all([
+    page.waitForResponse(response => response.url().includes('/api/trainings/active') && response.ok()),
+    page.goto('/'),
+  ])
   const active = (await (await page.request.get('/api/trainings/active')).json()).training
-  if (active) await page.request.post(`/api/trainings/${active.id}/abandon`)
+  if (active) {
+    await page.request.post(`/api/trainings/${active.id}/abandon`)
+    await Promise.all([
+      page.waitForResponse(response => response.url().includes('/api/trainings/active') && response.ok()),
+      page.goto('/'),
+    ])
+  }
   // 回放完全离线：导入后掐断所有 API，再执行全部交互
   await page.route('**/api/**', route => route.abort())
+  await page.getByRole('button', { name: '训练录像', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '训练录像', exact: true })).toBeVisible()
 
   const compact = buildCompactFile()
   await page.getByLabel('导入录制', { exact: true }).setInputFiles({
@@ -216,10 +227,21 @@ test('按交易日回放：键盘步进、观察周期独立、画线终态与�
 test('旧文件缺当日日线：首日即时回退唯一周期、明示缺日线、次日恢复偏好', async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
-  await page.goto('/')
+  await Promise.all([
+    page.waitForResponse(response => response.url().includes('/api/trainings/active') && response.ok()),
+    page.goto('/'),
+  ])
   const active = (await (await page.request.get('/api/trainings/active')).json()).training
-  if (active) await page.request.post(`/api/trainings/${active.id}/abandon`)
+  if (active) {
+    await page.request.post(`/api/trainings/${active.id}/abandon`)
+    await Promise.all([
+      page.waitForResponse(response => response.url().includes('/api/trainings/active') && response.ok()),
+      page.goto('/'),
+    ])
+  }
   await page.route('**/api/**', route => route.abort())
+  await page.getByRole('button', { name: '训练录像', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '训练录像', exact: true })).toBeVisible()
 
   // 旧录制形态：首日只有周K快照（整日无日线），次日推进后有当日日线
   const weekBar: Bar = { date: '2026-01-05', open: 9, high: 12, low: 8, close: 11, volume: 2000, amount: 21000 }

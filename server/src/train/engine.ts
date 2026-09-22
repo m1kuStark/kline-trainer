@@ -437,21 +437,19 @@ export async function advanceTraining(database: DatabaseSync, config: AppConfig,
   const current = row.current_date ?? row.start_date
   const next = daily.find(bar => bar.date > current && bar.date <= row.planned_end)
   if (!next) {
-    // 数据尾守卫：找不到下一根时，必须先确认本地数据确实覆盖到计划结束、且缺线区间属正常缺线
-    // （结束日恰为数据末日 / 缺口只含周末 / 全市场数据尾已越过计划结束即个股停牌或结束日后有记录），
-    // 才允许到期结算；否则按"等待日线数据"保守等待：保持 running、保留当前日，更新数据后可继续或提前结算。
-    // 防未来说明：这里只读取"数据末日"这类元信息做判定，不读取推进日之后的任何价格数据，结算仍用既有推进状态。
-    const tail = daily.at(-1)?.date ?? null
-    const marketTail = (database.prepare('SELECT MAX(last_date) AS tail FROM stocks').get() as unknown as { tail: string | null }).tail
-    const covered = tail !== null && (
-      tail >= row.planned_end
-      || isWeekendBridge(tail, row.planned_end)
-      || (marketTail !== null && marketTail >= row.planned_end)
-    )
-    if (!covered) {
-      throw new HttpError(409, `等待日线数据：本地日线数据尚未覆盖至计划结束（数据末日 ${tail ?? '未知'} < 计划结束 ${row.planned_end}），更新数据后可继续推进，也可提前结算`)
+    // 个股覆盖证明：找不到下一根时，只有两种可证明的完整覆盖允许自然到期——
+    // 1) 推进日已到计划结束（待覆盖区间为空）；2) 剩余日期全部是周六/周日（A 股周末从无日线，
+    //    isWeekendBridge 逐日核对）。他股或全市场数据尾、结束日之后的零星记录都排除不了
+    //    区间内停牌与数据缺口并存的可能，一律保守等待：保持 running，更新数据后可继续或提前结算。
+    // 防未来说明：判定只使用日期元信息与日历，不读取推进日之后的任何价格数据。
+    if (current < row.planned_end && !isWeekendBridge(current, row.planned_end)) {
+      const tail = daily.at(-1)?.date ?? null
+      const detail = tail !== null && tail > row.planned_end
+        ? `个股日线在 ${current} 之后、计划结束 ${row.planned_end} 之前无记录，但 ${tail} 起又有数据，无法区分长期停牌与区间数据缺口`
+        : `个股日线止于 ${tail ?? '未知'}，尚未确认覆盖至计划结束 ${row.planned_end}，其间可能为节假日、停牌或数据缺口`
+      throw new HttpError(409, `等待日线数据：${detail}；更新数据后可继续推进，也可提前结算`)
     }
-    // 到期结算：个股在到期日前没有更多交易日时，取最后交易日结算
+    // 到期结算：个股在到期日前没有更多可证明的交易日时，取最后推进日结算
     database.prepare(
       "UPDATE trainings SET status = 'settled', settle_date = ?, early_settle = 0 WHERE id = ?",
     ).run(current, id)

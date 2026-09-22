@@ -11,3 +11,6 @@ playwright-report/
 .mimosa/
 
 .releases/
+
+# Local diagnostic reports may contain machine paths; keep only reviewed tools.
+tools/diagnostics/**/Kline-Diagnostic-*.txt

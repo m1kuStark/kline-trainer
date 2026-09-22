@@ -47,6 +47,19 @@ interface PendingUpsert {
   lastDate: string | null
 }
 
+/**
+ * 目录刷新的两段式结构：scan 只读（文件系统＋缓存读取，不写库），
+ * apply 同步执行全部写入（调用方必须已开启事务）。整批发布（DATA-01）
+ * 由协调器把 apply 与权息、快照放在同一事务内一次性提交。
+ */
+export interface CatalogChanges {
+  pending: PendingUpsert[]
+  removals: Array<{ code: string; market: TdxMarket }>
+  stats: CatalogRefreshStats
+  failures: CatalogMarketFailure[]
+  absentMarkets: TdxMarket[]
+}
+
 function readCachedStocks(database: DatabaseSync): StockSummary[] {
   const rows = database.prepare(`
     SELECT code, market, name, bars, mtime, last_date
@@ -81,20 +94,14 @@ async function readDirectoryWithRetry(directory: string): Promise<{ ok: true; fi
   }
 }
 
-export async function refreshStockCatalog(database: DatabaseSync, tdxRoot: string): Promise<CatalogRefreshResult> {
+/** 只读扫描：读取缓存与各市场日线目录，产出待写入变更；绝不写库、绝不删除缓存。 */
+export async function scanCatalogChanges(database: DatabaseSync, tdxRoot: string): Promise<CatalogChanges> {
   const cached = new Map(readCachedStocks(database).map(stock => [`${stock.market}:${stock.code}`, stock]))
   const seen = new Set<string>()
   const failedMarkets = new Set<TdxMarket>()
   const absentMarkets: TdxMarket[] = []
   const failures: CatalogMarketFailure[] = []
   const stats: CatalogRefreshStats = { refreshed: 0, reused: 0, removed: 0 }
-  const upsert = database.prepare(`
-    INSERT INTO stocks (code, market, name, type, bars, mtime, last_date)
-    VALUES (?, ?, ?, 'A', ?, ?, ?)
-    ON CONFLICT(code) DO UPDATE SET
-      market = excluded.market, name = excluded.name, type = excluded.type,
-      bars = excluded.bars, mtime = excluded.mtime, last_date = excluded.last_date
-  `)
   const pending: PendingUpsert[] = []
 
   for (const market of ['sh', 'sz', 'bj'] as TdxMarket[]) {
@@ -128,6 +135,9 @@ export async function refreshStockCatalog(database: DatabaseSync, tdxRoot: strin
         marketSeen.add(key)
         const filePath = join(directory, file)
         const info = await stat(filePath)
+        if (info.size % 32 !== 0) {
+          throw new Error(`日线文件 ${file} 长度 ${info.size} 字节不是 32 字节记录的整数倍`)
+        }
         const mtime = info.mtime.toISOString()
         const existing = cached.get(key)
         const name = names.get(code) ?? existing?.name ?? code
@@ -157,25 +167,44 @@ export async function refreshStockCatalog(database: DatabaseSync, tdxRoot: strin
     stats.reused += marketStats.reused
   }
 
-  // 只有扫描完整成功的市场才允许用新结果替换缓存：变更与删除集中在单事务内应用，
-  // 失败/缺席市场一律不删缓存。
+  // 只有扫描完整成功的市场才允许用新结果替换缓存；失败/缺席市场一律不删缓存
+  const removals: Array<{ code: string; market: TdxMarket }> = []
+  for (const stock of cached.values()) {
+    if (failedMarkets.has(stock.market)) continue
+    if (!seen.has(`${stock.market}:${stock.code}`)) removals.push({ code: stock.code, market: stock.market })
+  }
+  stats.removed = removals.length
+
+  return { pending, removals, stats, failures, absentMarkets }
+}
+
+/** 应用阶段：执行全部目录写入（upsert＋移除）。调用方必须已开启事务；同步执行，异常由调用方回滚。 */
+export function applyCatalogChanges(database: DatabaseSync, changes: CatalogChanges): void {
+  const upsert = database.prepare(`
+    INSERT INTO stocks (code, market, name, type, bars, mtime, last_date)
+    VALUES (?, ?, ?, 'A', ?, ?, ?)
+    ON CONFLICT(code) DO UPDATE SET
+      market = excluded.market, name = excluded.name, type = excluded.type,
+      bars = excluded.bars, mtime = excluded.mtime, last_date = excluded.last_date
+  `)
+  for (const item of changes.pending) {
+    upsert.run(item.code, item.market, item.name, item.bars, item.mtime, item.lastDate)
+  }
+  const remove = database.prepare('DELETE FROM stocks WHERE code = ?')
+  for (const item of changes.removals) {
+    remove.run(item.code)
+  }
+}
+
+export async function refreshStockCatalog(database: DatabaseSync, tdxRoot: string): Promise<CatalogRefreshResult> {
+  const changes = await scanCatalogChanges(database, tdxRoot)
   database.exec('BEGIN')
   try {
-    for (const item of pending) {
-      upsert.run(item.code, item.market, item.name, item.bars, item.mtime, item.lastDate)
-    }
-    const remove = database.prepare('DELETE FROM stocks WHERE code = ?')
-    for (const stock of cached.values()) {
-      if (failedMarkets.has(stock.market)) continue
-      if (!seen.has(`${stock.market}:${stock.code}`)) {
-        remove.run(stock.code)
-        stats.removed += 1
-      }
-    }
+    applyCatalogChanges(database, changes)
     database.exec('COMMIT')
   } catch (error) {
     database.exec('ROLLBACK')
     throw error
   }
-  return { stocks: readCachedStocks(database), stats, failures, absentMarkets }
+  return { stocks: readCachedStocks(database), stats: changes.stats, failures: changes.failures, absentMarkets: changes.absentMarkets }
 }

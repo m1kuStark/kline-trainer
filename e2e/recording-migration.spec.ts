@@ -33,7 +33,7 @@ test('旧版IndexedDB录制可迁移查看，原始记录仍保留且损坏导�
   }), legacy)
   await page.goto('/')
   // 训练录像库合并展示旧 v1 记录；打开时按需迁移为 v2，原始行保留
-  await page.getByRole('button', { name: '查看训练录像' }).click()
+  await page.getByRole('button', { name: '训练录像', exact: true }).click()
   await expect(page.getByRole('heading', { name: '训练录像', exact: true })).toBeVisible()
   await page.locator('.recording-history-item').click()
   await expect(page.getByRole('button', { name: '关闭回放', exact: true })).toBeVisible()

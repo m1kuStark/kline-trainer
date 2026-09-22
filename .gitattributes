@@ -2,3 +2,6 @@
 *.cmd -text
 # Vite SSR's hashbang transform is sensitive to CRLF in executable ESM files.
 scripts/release/*.mjs text eol=lf
+# Preserve the user-supplied diagnostic archive's extracted originals byte-for-byte.
+tools/diagnostics/kline-diagnostic-v1/*.txt -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+tools/diagnostics/kline-diagnostic-v1/*.cmd whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

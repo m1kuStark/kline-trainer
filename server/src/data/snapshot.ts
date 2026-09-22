@@ -1,5 +1,6 @@
 // 快照持久化：data_file_state（上次成功扫描的文件状态基线）与 data_refresh_log（追加式刷新日志）。
-// 只在扫描与权息全部成功后由协调器一次性提交；失败路径仅追加失败日志，绝不清空旧快照。
+// 只在扫描与权息全部成功后由协调器在整批事务内一次性提交（含批次标识）；失败路径仅追加失败日志，
+// 绝不清空旧快照。整批语义见 docs/publication.md 与 DATA-01。
 
 import type { DatabaseSync } from 'node:sqlite'
 import type { ScanBaseline, ScanOutcome } from './source.js'
@@ -51,22 +52,29 @@ export function loadScanBaseline(database: DatabaseSync): ScanBaseline {
   return baseline
 }
 
-/** 成功提交：全量替换文件快照 + 追加成功日志，单事务原子生效（保留最近 50 条日志）。 */
-export function commitScanResult(database: DatabaseSync, outcome: ScanOutcome, entry: RefreshLogEntry): void {
-  database.exec('BEGIN IMMEDIATE')
-  try {
-    database.exec('DELETE FROM data_file_state')
-    const insert = database.prepare('INSERT INTO data_file_state (path, size, mtime_ms, max_date, "rows") VALUES (?, ?, ?, ?, ?)')
-    for (const file of outcome.files) {
-      insert.run(file.path, file.size, file.mtimeMs, file.maxDate, file.rows)
-    }
-    insertLogEntry(database, entry)
-    database.exec('DELETE FROM data_refresh_log WHERE id NOT IN (SELECT id FROM data_refresh_log ORDER BY id DESC LIMIT 50)')
-    database.exec('COMMIT')
-  } catch (error) {
-    database.exec('ROLLBACK')
-    throw error
+/**
+ * 整批发布版本标识（DATA-01）：目录、权息、文件状态三个域指向同一批次。
+ * 只允许在整批事务内调用；三键同事务写入，读取方据"三键存在且相等"判定最后一批完整生效。
+ */
+export function publishBatchVersion(database: DatabaseSync, batchId: string): void {
+  const upsert = database.prepare('INSERT INTO cache_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+  for (const key of ['catalog_batch', 'adjustment_batch', 'snapshot_batch']) {
+    upsert.run(key, batchId)
   }
+}
+
+/**
+ * 成功路径的应用阶段（无事务边界）：全量替换文件快照 + 追加成功日志 + 保留最近 50 条。
+ * 调用方必须已开启事务；同步执行，异常由调用方回滚。
+ */
+export function applyScanResult(database: DatabaseSync, outcome: ScanOutcome, entry: RefreshLogEntry): void {
+  database.exec('DELETE FROM data_file_state')
+  const insert = database.prepare('INSERT INTO data_file_state (path, size, mtime_ms, max_date, "rows") VALUES (?, ?, ?, ?, ?)')
+  for (const file of outcome.files) {
+    insert.run(file.path, file.size, file.mtimeMs, file.maxDate, file.rows)
+  }
+  insertLogEntry(database, entry)
+  database.exec('DELETE FROM data_refresh_log WHERE id NOT IN (SELECT id FROM data_refresh_log ORDER BY id DESC LIMIT 50)')
 }
 
 /** 失败路径：只追加失败日志，不动快照（旧缓存与基线原样保留）。 */
